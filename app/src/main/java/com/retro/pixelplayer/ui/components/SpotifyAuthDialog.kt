@@ -121,7 +121,7 @@ fun SpotifyAuthDialog(
                         )
                     }
                     Text(
-                        text = if (isSyncing) "SYNCING TAPES FROM CLOUD..." else syncStatus,
+                        text = syncStatus,
                         color = PixelPalette.LcdPixels,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,

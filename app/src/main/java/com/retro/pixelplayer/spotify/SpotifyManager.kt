@@ -224,11 +224,15 @@ object SpotifyManager {
      * Fetches the user's Spotify Playlists and Saved Albums / Liked Songs and converts them into
      * 16-bit Pixel Tapes for the Shelf & Shoe Box!
      */
-    suspend fun syncSpotifyLibrary(context: Context): Result<SpotifySyncResult> = withContext(Dispatchers.IO) {
+    suspend fun syncSpotifyLibrary(
+        context: Context,
+        onProgress: (String) -> Unit = {}
+    ): Result<SpotifySyncResult> = withContext(Dispatchers.IO) {
         val token = getValidAccessToken(context)
             ?: return@withContext Result.failure(Exception("Not logged in to Spotify"))
 
         try {
+            onProgress("READING SPOTIFY PROFILE...")
             val profileJson = getJson("https://api.spotify.com/v1/me", token)
             val userName = profileJson.optString("display_name", "SPOTIFY USER")
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -236,47 +240,142 @@ object SpotifyManager {
                 .putString(KEY_USER_NAME, userName)
                 .apply()
 
-            // 1. Fetch User Playlists -> Homemade Mixtapes in Shoe Box
             val playlistTapes = mutableListOf<TapeItem>()
-            try {
-                val playlistsJson = getJson("https://api.spotify.com/v1/me/playlists?limit=12", token)
-                val items = playlistsJson.optJSONArray("items") ?: JSONArray()
-                for (i in 0 until items.length()) {
-                    val pl = items.optJSONObject(i) ?: continue
-                    val plId = pl.optString("id")
-                    val plName = pl.optString("name", "Spotify Mixtape")
-                    val plUri = pl.optString("uri", "spotify:playlist:$plId")
-
-                    val tracks = fetchPlaylistTracks(plId, plName, token)
-                    if (tracks.isNotEmpty()) {
-                        val labelCol = mixtapeLabelPalette[i % mixtapeLabelPalette.size]
-                        playlistTapes.add(
-                            TapeItem(
-                                id = "spotify_pl_$plId",
-                                title = plName.uppercase(),
-                                subtitle = "SPOTIFY MIX • ${tracks.size} TRACKS",
-                                type = TapeType.PLAYLIST,
-                                tracks = tracks,
-                                spineColorHex = 0xFF1B5E20,
-                                labelColorHex = labelCol,
-                                isHomeMade = true,
-                                artworkBitmap = null,
-                                isSpotify = true,
-                                spotifyContextUri = plUri
-                            )
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-            }
-
-            // 2. Fetch Saved Albums & Liked Songs -> Artist Shelf Tapes with Pixelated Cover Art
             val allSpotifyTracks = mutableListOf<Track>()
             val albumArtworkCache = mutableMapOf<String, Bitmap?>()
 
+            // 1. Fetch User Playlists -> Homemade Mixtapes in Shoe Box
             try {
+                onProgress("SCANNING SPOTIFY PLAYLISTS...")
+                val playlistsJson = getJson("https://api.spotify.com/v1/me/playlists?limit=15", token)
+                val items = playlistsJson.optJSONArray("items") ?: JSONArray()
+                android.util.Log.d("SpotifySync", "Found ${items.length()} playlists")
+                for (i in 0 until items.length()) {
+                    val pl = items.optJSONObject(i) ?: continue
+                    val plId = pl.optString("id")
+                    if (plId.isBlank()) continue
+                    val plName = pl.optString("name", "Spotify Mixtape")
+                    val plUri = pl.optString("uri", "spotify:playlist:$plId")
+
+                    onProgress("LOADING MIXTAPE (${i + 1}/${items.length()}): ${plName.take(16)}...")
+                    val tracks = fetchPlaylistTracks(plId, plName, token)
+                    val fallbackTracks = if (tracks.isNotEmpty()) {
+                        tracks
+                    } else {
+                        // Even if Spotify Dev Mode restricts track listing on an algorithmic playlist,
+                        // create a playable context track so the cassette still works in the deck!
+                        listOf(
+                            Track(
+                                id = plId.hashCode().toLong(),
+                                title = plName,
+                                artist = "Spotify Playlist",
+                                album = plName,
+                                durationMs = 180000L,
+                                contentUri = Uri.parse(plUri),
+                                spotifyUri = plUri
+                            )
+                        )
+                    }
+
+                    val labelCol = mixtapeLabelPalette[i % mixtapeLabelPalette.size]
+                    playlistTapes.add(
+                        TapeItem(
+                            id = "spotify_pl_$plId",
+                            title = plName.uppercase(),
+                            subtitle = "🟢 SPOTIFY MIX • ${fallbackTracks.size} TRACKS",
+                            type = TapeType.PLAYLIST,
+                            tracks = fallbackTracks,
+                            spineColorHex = 0xFF1B5E20,
+                            labelColorHex = labelCol,
+                            isHomeMade = true,
+                            artworkBitmap = null,
+                            isSpotify = true,
+                            spotifyContextUri = plUri
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("SpotifySync", "Playlists fetch warning: ${e.message}")
+            }
+
+            // 2. Fetch Liked Songs (/v1/me/tracks) -> Both a "LIKED SONGS" Mixtape AND Artist Shelf tracks
+            try {
+                onProgress("FETCHING LIKED SONGS...")
+                val likedJson = getJson("https://api.spotify.com/v1/me/tracks?limit=30", token)
+                val items = likedJson.optJSONArray("items") ?: JSONArray()
+                android.util.Log.d("SpotifySync", "Found ${items.length()} liked tracks")
+                val likedTracks = mutableListOf<Track>()
+
+                for (i in 0 until items.length()) {
+                    val item = items.optJSONObject(i) ?: continue
+                    val tr = item.optJSONObject("track") ?: continue
+                    val trId = tr.optString("id").hashCode().toLong()
+                    val trTitle = tr.optString("name", "Track")
+                    val trDur = tr.optLong("duration_ms", 180000L)
+                    val trUri = tr.optString("uri", "")
+                    val previewUrl = tr.optString("preview_url", "")
+
+                    val albumObj = tr.optJSONObject("album")
+                    val albumName = albumObj?.optString("name", "Spotify Singles") ?: "Spotify Singles"
+                    val artistsArr = tr.optJSONArray("artists")
+                    val artistName = artistsArr?.optJSONObject(0)?.optString("name") ?: "Spotify Artist"
+
+                    val imagesArr = albumObj?.optJSONArray("images")
+                    val imageUrl = if (imagesArr != null && imagesArr.length() > 0) {
+                        imagesArr.optJSONObject(imagesArr.length() - 1)?.optString("url")
+                    } else null
+
+                    val artKey = "${artistName}_$albumName"
+                    if (!albumArtworkCache.containsKey(artKey) && !imageUrl.isNullOrBlank() && albumArtworkCache.size < 20) {
+                        albumArtworkCache[artKey] = downloadAndPixelateArtwork(imageUrl)
+                    }
+
+                    val contentUri = if (previewUrl.isNotBlank() && previewUrl != "null") {
+                        Uri.parse(previewUrl)
+                    } else {
+                        Uri.parse(trUri.ifBlank { "spotify:track:0" })
+                    }
+
+                    val trackObj = Track(
+                        id = trId,
+                        title = trTitle,
+                        artist = artistName,
+                        album = albumName,
+                        durationMs = trDur,
+                        contentUri = contentUri,
+                        spotifyUri = trUri
+                    )
+                    likedTracks.add(trackObj)
+                    allSpotifyTracks.add(trackObj)
+                }
+
+                if (likedTracks.isNotEmpty()) {
+                    playlistTapes.add(
+                        0,
+                        TapeItem(
+                            id = "spotify_liked_songs",
+                            title = "LIKED SONGS MIX",
+                            subtitle = "🟢 SPOTIFY FAVORITES • ${likedTracks.size} TRACKS",
+                            type = TapeType.PLAYLIST,
+                            tracks = likedTracks,
+                            spineColorHex = 0xFF1DB954,
+                            labelColorHex = 0xFFC8E6C9,
+                            isHomeMade = true,
+                            artworkBitmap = null,
+                            isSpotify = true
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("SpotifySync", "Liked tracks warning: ${e.message}")
+            }
+
+            // 3. Fetch Saved Albums -> Artist Shelf Tapes with Pixelated Cover Art
+            try {
+                onProgress("FETCHING SAVED ALBUMS & PIXELATING ART...")
                 val albumsJson = getJson("https://api.spotify.com/v1/me/albums?limit=12", token)
                 val items = albumsJson.optJSONArray("items") ?: JSONArray()
+                android.util.Log.d("SpotifySync", "Found ${items.length()} saved albums")
                 for (i in 0 until items.length()) {
                     val item = items.optJSONObject(i) ?: continue
                     val albumObj = item.optJSONObject("album") ?: continue
@@ -284,7 +383,6 @@ object SpotifyManager {
                     val artistsArr = albumObj.optJSONArray("artists")
                     val artistName = artistsArr?.optJSONObject(0)?.optString("name") ?: "Spotify Artist"
 
-                    // Download & pixelate album cover art (smallest thumbnail for speed)
                     val imagesArr = albumObj.optJSONArray("images")
                     val imageUrl = if (imagesArr != null && imagesArr.length() > 0) {
                         imagesArr.optJSONObject(imagesArr.length() - 1)?.optString("url")
@@ -324,17 +422,19 @@ object SpotifyManager {
                         )
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                android.util.Log.w("SpotifySync", "Albums fetch warning: ${e.message}")
             }
 
-            // Fallback: if user has no saved albums, pull from Liked Songs (/v1/me/tracks)
+            // 4. Fallback: Top Tracks if still empty
             if (allSpotifyTracks.isEmpty()) {
                 try {
-                    val likedJson = getJson("https://api.spotify.com/v1/me/tracks?limit=30", token)
-                    val items = likedJson.optJSONArray("items") ?: JSONArray()
+                    onProgress("FETCHING TOP TRACKS...")
+                    val topJson = getJson("https://api.spotify.com/v1/me/top/tracks?limit=25", token)
+                    val items = topJson.optJSONArray("items") ?: JSONArray()
+                    android.util.Log.d("SpotifySync", "Found ${items.length()} top tracks")
                     for (i in 0 until items.length()) {
-                        val item = items.optJSONObject(i) ?: continue
-                        val tr = item.optJSONObject("track") ?: continue
+                        val tr = items.optJSONObject(i) ?: continue
                         val trId = tr.optString("id").hashCode().toLong()
                         val trTitle = tr.optString("name", "Track")
                         val trDur = tr.optLong("duration_ms", 180000L)
@@ -342,7 +442,7 @@ object SpotifyManager {
                         val previewUrl = tr.optString("preview_url", "")
 
                         val albumObj = tr.optJSONObject("album")
-                        val albumName = albumObj?.optString("name", "Spotify Singles") ?: "Spotify Singles"
+                        val albumName = albumObj?.optString("name", "Top Tracks") ?: "Top Tracks"
                         val artistsArr = tr.optJSONArray("artists")
                         val artistName = artistsArr?.optJSONObject(0)?.optString("name") ?: "Spotify Artist"
 
@@ -352,7 +452,7 @@ object SpotifyManager {
                         } else null
 
                         val artKey = "${artistName}_$albumName"
-                        if (!albumArtworkCache.containsKey(artKey) && !imageUrl.isNullOrBlank()) {
+                        if (!albumArtworkCache.containsKey(artKey) && !imageUrl.isNullOrBlank() && albumArtworkCache.size < 20) {
                             albumArtworkCache[artKey] = downloadAndPixelateArtwork(imageUrl)
                         }
 
@@ -374,13 +474,23 @@ object SpotifyManager {
                             )
                         )
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    android.util.Log.w("SpotifySync", "Top tracks warning: ${e.message}")
+                }
+            }
+
+            // Also include any real tracks found inside user playlists on the Artist Shelf
+            if (allSpotifyTracks.isEmpty()) {
+                playlistTapes.forEach { plTape ->
+                    plTape.tracks.filter { it.artist != "Spotify Playlist" }.forEach {
+                        allSpotifyTracks.add(it)
+                    }
                 }
             }
 
             // Group Spotify tracks into Artist Shelf Tapes
             val artistTapes = mutableMapOf<String, List<TapeItem>>()
-            val tracksByArtist = allSpotifyTracks.groupBy { it.artist }
+            val tracksByArtist = allSpotifyTracks.distinctBy { "${it.artist}_${it.title}" }.groupBy { it.artist }
 
             tracksByArtist.forEach { (artist, artistTracks) ->
                 val list = mutableListOf<TapeItem>()
@@ -424,6 +534,7 @@ object SpotifyManager {
                 artistTapes[artist] = list
             }
 
+            android.util.Log.d("SpotifySync", "Sync complete: ${playlistTapes.size} mixtapes, ${artistTapes.size} artists")
             Result.success(
                 SpotifySyncResult(
                     userName = userName,
@@ -433,6 +544,7 @@ object SpotifyManager {
                 )
             )
         } catch (e: Exception) {
+            android.util.Log.e("SpotifySync", "Sync failed", e)
             Result.failure(e)
         }
     }

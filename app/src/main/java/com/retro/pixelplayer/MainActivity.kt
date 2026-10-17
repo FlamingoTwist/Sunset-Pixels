@@ -159,8 +159,14 @@ fun RetroAppRoot(
     fun triggerSpotifySync() {
         if (isSpotifySyncing) return
         isSpotifySyncing = true
+        spotifySyncStatus = "CONNECTING TO SPOTIFY..."
         coroutineScope.launch {
-            val res = SpotifyManager.syncSpotifyLibrary(context)
+            val res = SpotifyManager.syncSpotifyLibrary(
+                context = context,
+                onProgress = { progressMsg ->
+                    spotifySyncStatus = progressMsg
+                }
+            )
             isSpotifySyncing = false
             res.onSuccess { syncData ->
                 spotifyUserName = syncData.userName
@@ -185,7 +191,7 @@ fun RetroAppRoot(
             result.onSuccess { name ->
                 isSpotifyLoggedIn = true
                 spotifyUserName = name
-                spotifySyncStatus = "LINKED! FETCHING TAPES..."
+                isSpotifySyncing = false
                 triggerSpotifySync()
             }.onFailure { err ->
                 isSpotifySyncing = false
