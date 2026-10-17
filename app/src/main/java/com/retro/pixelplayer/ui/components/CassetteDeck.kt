@@ -1,0 +1,236 @@
+package com.retro.pixelplayer.ui.components
+
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.retro.pixelplayer.R
+import com.retro.pixelplayer.ui.theme.PixelPalette
+import kotlinx.coroutines.delay
+
+/**
+ * Authentic Cassette Tape Deck using pixel-art sliced assets:
+ * - deck_cassette_base: Full door frame, glass reflection, warm top lamp & cassette
+ * - deck_empty_base: Open cassette well with drive spindles & head mechanism when ejected
+ * - spinner_hub_left & spinner_hub_right: Clean circular cutouts rotated in mechanical steps (not smoothly)
+ * - Superimposed tape label text matching physical C-90 cassette typography
+ */
+@Composable
+fun CassetteDeck(
+    modifier: Modifier = Modifier,
+    isTapeInserted: Boolean,
+    isPlaying: Boolean,
+    tapeTitle: String,
+    tapeSubtitle: String,
+    labelColor: Color = PixelPalette.TapeLabelPink,
+    shellColor: Color = PixelPalette.TapeBodyWhite,
+    isHomeMade: Boolean = false,
+    artworkBitmap: Bitmap? = null,
+    onEjectOrInsert: () -> Unit
+) {
+    // Stepped ratchet mechanical rotation (not smoothly)
+    var stepCount by remember { mutableStateOf(0) }
+    LaunchedEffect(isPlaying, isTapeInserted) {
+        if (isPlaying && isTapeInserted) {
+            while (true) {
+                delay(90L) // Mechanical discrete step every 90ms
+                stepCount = (stepCount + 1) % 24
+            }
+        }
+    }
+
+    val currentRotation = if (isPlaying && isTapeInserted) {
+        stepCount * 15f // 15 degrees per chunky mechanical jump
+    } else {
+        0f
+    }
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(1024f / 593f)
+            .clickable { onEjectOrInsert() },
+        contentAlignment = Alignment.TopStart
+    ) {
+        val deckWidth = maxWidth
+        val deckHeight = maxHeight
+
+        if (!isTapeInserted) {
+            // Ejected Empty Deck Bay
+            Image(
+                painter = painterResource(id = R.drawable.deck_empty_base),
+                contentDescription = "Empty Deck Bay",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds
+            )
+
+            // Prompt centered in the empty tape bay
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "[ NO CASSETTE INSERTED ]",
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "TAP DECK TO BROWSE TAPES",
+                    color = Color(0xFFFFAE52),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        } else {
+            // Base Deck with Tape
+            Image(
+                painter = painterResource(id = R.drawable.deck_cassette_base),
+                contentDescription = "Cassette Deck",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds
+            )
+
+            // Superimposed Stepped Rotating Spinners (Left & Right)
+            // Left Hub: center = (331, 268), diameter = 110 in 1024x593
+            // Right Hub: center = (686, 268), diameter = 110 in 1024x593
+            val spinnerSize = deckWidth * (110f / 1024f)
+
+            // Left Spinner
+            val leftOffsetX = deckWidth * (331f / 1024f) - (spinnerSize / 2f)
+            val leftOffsetY = deckHeight * (268f / 593f) - (spinnerSize / 2f)
+
+            Image(
+                painter = painterResource(id = R.drawable.spinner_hub_left),
+                contentDescription = "Left Tape Spool",
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = leftOffsetX, y = leftOffsetY)
+                    .size(spinnerSize)
+                    .rotate(currentRotation),
+                contentScale = ContentScale.Fit
+            )
+
+            // Right Spinner
+            val rightOffsetX = deckWidth * (686f / 1024f) - (spinnerSize / 2f)
+            val rightOffsetY = deckHeight * (268f / 593f) - (spinnerSize / 2f)
+
+            Image(
+                painter = painterResource(id = R.drawable.spinner_hub_right),
+                contentDescription = "Right Tape Spool",
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = rightOffsetX, y = rightOffsetY)
+                    .size(spinnerSize)
+                    .rotate(currentRotation),
+                contentScale = ContentScale.Fit
+            )
+
+            // Superimposed Text on Tape Label
+            // Label bounding box in 1024x593: X=[176, 832], Y=[111, 219]
+            val labelLeft = deckWidth * (182f / 1024f)
+            val labelTop = deckHeight * (116f / 593f)
+            val labelWidth = deckWidth * (644f / 1024f)
+            val labelHeight = deckHeight * (72f / 593f)
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = labelLeft, y = labelTop)
+                    .size(width = labelWidth, height = labelHeight)
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    // Top header line
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isHomeMade) "★ MIXTAPE ★" else "SIDE A",
+                            color = Color(0xFF4A3E38),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 8.sp
+                        )
+                        Text(
+                            text = if (isHomeMade) "NORMAL BIAS C-90" else "16-BIT STEREO",
+                            color = Color(0xFF5A4C44),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 7.sp
+                        )
+                    }
+
+                    // Main Tape Title (sitting along the ruled line)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (artworkBitmap != null) {
+                            Image(
+                                bitmap = artworkBitmap.asImageBitmap(),
+                                contentDescription = "Album Art",
+                                filterQuality = FilterQuality.None,
+                                modifier = Modifier
+                                    .size(13.dp)
+                                    .border(1.dp, Color(0xFF4A3E38))
+                            )
+                        }
+                        Text(
+                            text = tapeTitle.uppercase(),
+                            color = Color(0xFF1E1714),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 8.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
