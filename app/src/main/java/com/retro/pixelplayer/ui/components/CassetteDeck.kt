@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -233,4 +234,31 @@ fun CassetteDeck(
             }
         }
     }
+}
+
+@Preview(name = "Cassette Deck - Playing", widthDp = 512, heightDp = 296)
+@Composable
+private fun CassetteDeckPlayingPreview() {
+    CassetteDeck(
+        isTapeInserted = true,
+        isPlaying = true,
+        tapeTitle = "Summer Chill Mixtape '86",
+        tapeSubtitle = "Homemade Playlist",
+        labelColor = PixelPalette.TapeLabelPink,
+        shellColor = Color(0xFFF5F5DC),
+        isHomeMade = true,
+        onEjectOrInsert = {}
+    )
+}
+
+@Preview(name = "Cassette Deck - Empty", widthDp = 512, heightDp = 296)
+@Composable
+private fun CassetteDeckEmptyPreview() {
+    CassetteDeck(
+        isTapeInserted = false,
+        isPlaying = false,
+        tapeTitle = "",
+        tapeSubtitle = "",
+        onEjectOrInsert = {}
+    )
 }

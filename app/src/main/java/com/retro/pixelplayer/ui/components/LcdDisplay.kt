@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
 import com.retro.pixelplayer.R
 import com.retro.pixelplayer.ui.theme.PixelPalette
 
@@ -131,4 +132,16 @@ fun LcdDisplay(
             }
         }
     }
+}
+
+@Preview(name = "LCD Display Preview", widthDp = 392, heightDp = 163)
+@Composable
+private fun LcdDisplayPreview() {
+    LcdDisplay(
+        trackTitle = "Jetpack Blues, Sunset Hues",
+        artist = "Anamanaguchi",
+        source = "SPOTIFY",
+        timeText = "01:42 / 03:28",
+        statusText = "PLAYING"
+    )
 }

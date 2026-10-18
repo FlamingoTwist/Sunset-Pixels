@@ -2,6 +2,7 @@ package com.retro.pixelplayer
 
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -61,6 +62,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
@@ -1359,4 +1361,107 @@ private fun SwitchesRow(
         }
     }
 }
+
+@Preview(
+    name = "Walkman Deck - Landscape",
+    widthDp = 1024,
+    heightDp = 460,
+    showBackground = true
+)
+@Composable
+private fun DeckScreenLandscapePreview() {
+    val sampleTrack = com.retro.pixelplayer.audio.Track(
+        id = 1L,
+        title = "Neon Sunset",
+        artist = "Neon Dreamer",
+        album = "Sunset Pixels",
+        durationMs = 215_000L,
+        contentUri = Uri.EMPTY
+    )
+    val sampleTape = com.retro.pixelplayer.audio.TapeItem(
+        id = "preview_1",
+        title = "Sunset Vibes '84",
+        subtitle = "OFFICIAL ALBUM TAPE",
+        type = com.retro.pixelplayer.audio.TapeType.ALBUM,
+        tracks = listOf(sampleTrack),
+        labelColorHex = 0xFFFF7043
+    )
+    DeckScreen(
+        currentTape = sampleTape,
+        activeTrack = sampleTrack,
+        activeTrackIndex = 0,
+        totalTracksInTape = 1,
+        isTapeInserted = true,
+        isPlaying = true,
+        isPaused = false,
+        isSpotifyLoggedIn = true,
+        currentPositionMs = 65_000L,
+        totalDurationMs = 215_000L,
+        feedback = MechanicalFeedback(LocalContext.current),
+        onPlay = {},
+        onPause = {},
+        onStop = {},
+        onSkipPrev = {},
+        onSkip = {},
+        onEject = {},
+        onSeek = {},
+        onShuffleToggle = {},
+        onRepeatToggle = {},
+        onTapeDeckTapped = {},
+        onSpotifyClicked = {},
+        onBrowseTapesClicked = {}
+    )
+}
+
+@Preview(
+    name = "Walkman Deck - Portrait",
+    widthDp = 412,
+    heightDp = 915,
+    showBackground = true
+)
+@Composable
+private fun DeckScreenPortraitPreview() {
+    val sampleTrack = com.retro.pixelplayer.audio.Track(
+        id = 1L,
+        title = "Neon Sunset",
+        artist = "Neon Dreamer",
+        album = "Sunset Pixels",
+        durationMs = 215_000L,
+        contentUri = Uri.EMPTY
+    )
+    val sampleTape = com.retro.pixelplayer.audio.TapeItem(
+        id = "preview_1",
+        title = "Sunset Vibes '84",
+        subtitle = "OFFICIAL ALBUM TAPE",
+        type = com.retro.pixelplayer.audio.TapeType.ALBUM,
+        tracks = listOf(sampleTrack),
+        labelColorHex = 0xFFFF7043
+    )
+    DeckScreen(
+        currentTape = sampleTape,
+        activeTrack = sampleTrack,
+        activeTrackIndex = 0,
+        totalTracksInTape = 1,
+        isTapeInserted = true,
+        isPlaying = true,
+        isPaused = false,
+        isSpotifyLoggedIn = true,
+        currentPositionMs = 65_000L,
+        totalDurationMs = 215_000L,
+        feedback = MechanicalFeedback(LocalContext.current),
+        onPlay = {},
+        onPause = {},
+        onStop = {},
+        onSkipPrev = {},
+        onSkip = {},
+        onEject = {},
+        onSeek = {},
+        onShuffleToggle = {},
+        onRepeatToggle = {},
+        onTapeDeckTapped = {},
+        onSpotifyClicked = {},
+        onBrowseTapesClicked = {}
+    )
+}
+
 
