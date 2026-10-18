@@ -57,11 +57,12 @@ object SpotifyRemoteManager {
     }
 
     /**
-     * Binds strictly to Spotify's background service. showAuthView is ALWAYS false
-     * so that the Spotify application UI is never brought to the foreground.
+     * Binds to Spotify's background service. If Spotify requires one-time explicit user
+     * authorization, showAuthView is activated so the native grant dialog appears.
      */
     fun connect(
         context: Context,
+        showAuthView: Boolean = false,
         onConnected: (() -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null
     ) {
@@ -84,16 +85,18 @@ object SpotifyRemoteManager {
         val clientId = SpotifyManager.getSavedClientId(context)
         val params = ConnectionParams.Builder(clientId)
             .setRedirectUri(SpotifyManager.REDIRECT_URI)
-            .showAuthView(false) // CRITICAL: Never pop Spotify UI to the foreground
+            .showAuthView(showAuthView)
             .build()
 
-        SpotifyAppRemote.connect(context.applicationContext, params, object : Connector.ConnectionListener {
+        val connectContext = if (showAuthView && context !is android.app.Application) context else context.applicationContext
+
+        SpotifyAppRemote.connect(connectContext, params, object : Connector.ConnectionListener {
             override fun onConnected(remote: SpotifyAppRemote) {
                 isConnecting = false
                 appRemote = remote
                 _isConnected.value = true
                 _lastError.value = null
-                Log.d(TAG, "SpotifyAppRemote successfully bound in background!")
+                Log.d(TAG, "SpotifyAppRemote successfully bound!")
 
                 // Subscribe to real-time player state updates (position, duration, isPaused, track info)
                 playerStateSubscription?.cancel()
@@ -119,8 +122,20 @@ object SpotifyRemoteManager {
             override fun onFailure(throwable: Throwable) {
                 isConnecting = false
                 _isConnected.value = false
+                Log.w(TAG, "SpotifyAppRemote bind failure: ${throwable.message}")
+
+                // If explicit authorization is required and we haven't shown auth view yet,
+                // automatically retry with showAuthView = true so Spotify pops up the one-time 'Agree' prompt!
+                val isExplicitAuthNeeded = throwable is com.spotify.android.appremote.api.error.UserNotAuthorizedException ||
+                    throwable.message?.contains("explicit user authorization", ignoreCase = true) == true
+
+                if (!showAuthView && isExplicitAuthNeeded) {
+                    Log.i(TAG, "Requesting explicit user authorization via showAuthView(true)...")
+                    connect(context, showAuthView = true, onConnected = onConnected, onError = onError)
+                    return
+                }
+
                 _lastError.value = "SPOTIFY DISCONNECTED"
-                Log.w(TAG, "SpotifyAppRemote background bind failure: ${throwable.message}")
                 onError?.invoke(throwable)
             }
         })
