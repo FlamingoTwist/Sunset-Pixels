@@ -927,19 +927,19 @@ fun DeckScreen(
                 }
             }
         } else {
-            // VERTICAL (Portrait) Layout - Modular stack of authentic sections
+            // VERTICAL (Portrait) Layout - Full-screen Walkman with bottom-anchored controls
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(14.dp)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Header Bar
+                // 1. Header Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp),
+                        .padding(horizontal = 2.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -980,121 +980,94 @@ fun DeckScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Distressed Orange Walkman Chassis
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(PixelPalette.ChassisBody)
-                        .border(5.dp, PixelPalette.ChassisBorder, RoundedCornerShape(18.dp))
-                        .padding(12.dp)
+                // 2. Middle Section: Cassette Door & LCD Screen
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.chassis_texture_portrait),
-                        contentDescription = null,
-                        modifier = Modifier.matchParentSize(),
-                        contentScale = ContentScale.Crop
+                    // Cassette Door with AUTO REVERSE and warm top lamp
+                    CassetteDeck(
+                        isTapeInserted = isTapeInserted,
+                        isPlaying = isPlaying,
+                        tapeTitle = tapeTitle,
+                        tapeSubtitle = tapeSubtitle,
+                        labelColor = tapeLabelColor,
+                        shellColor = tapeShellColor,
+                        isHomeMade = currentTape?.isHomeMade ?: false,
+                        artworkBitmap = currentTape?.artworkBitmap,
+                        onEjectOrInsert = { onTapeDeckTapped() }
                     )
 
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Cassette Door with AUTO REVERSE and warm top lamp
-                        CassetteDeck(
-                            isTapeInserted = isTapeInserted,
-                            isPlaying = isPlaying,
-                            tapeTitle = tapeTitle,
-                            tapeSubtitle = tapeSubtitle,
-                            labelColor = tapeLabelColor,
-                            shellColor = tapeShellColor,
-                            isHomeMade = currentTape?.isHomeMade ?: false,
-                            artworkBitmap = currentTape?.artworkBitmap,
-                            onEjectOrInsert = { onTapeDeckTapped() }
-                        )
-
-                        // Authentic Mint-Green LCD Screen
-                        LcdDisplay(
-                            trackTitle = trackTitle,
-                            artist = artistText,
-                            source = when {
-                                currentTape?.isSpotify == true -> "SPOTIFY"
-                                currentTape?.isHomeMade == true -> "MIXTAPE"
-                                else -> "ALBUM"
-                            },
-                            timeText = formattedTime,
-                            statusText = statusText
-                        )
-
-                        // Buttons section: Amber labels row + 6 buttons
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            TransportButtonLabelsRow(isTapeRunning = isTapeRunning)
-
-                            TransportButtonsRow(
-                                isPlaying = isPlaying,
-                                isTapeRunning = isTapeRunning,
-                                currentPositionMs = currentPositionMs,
-                                totalDurationMs = totalDurationMs,
-                                feedback = feedback,
-                                onPlay = onPlay,
-                                onStop = onStop,
-                                onSkipPrev = onSkipPrev,
-                                onSkip = onSkip,
-                                onEject = onEject,
-                                onSeek = onSeek
-                            )
-                        }
-
-                        // Bottom Row: Speaker Vents on left, Rocker Switches on right
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.chassis_speaker_vents),
-                                contentDescription = "Speaker Vents",
-                                modifier = Modifier.size(width = 110.dp, height = 28.dp)
-                            )
-
-                            SwitchesRow(
-                                isShuffleOn = isShuffleOn,
-                                isRepeatOn = isRepeatOn,
-                                feedback = feedback,
-                                onShuffleToggle = {
-                                    isShuffleOn = !isShuffleOn
-                                    onShuffleToggle(isShuffleOn)
-                                },
-                                onRepeatToggle = {
-                                    isRepeatOn = !isRepeatOn
-                                    onRepeatToggle(isRepeatOn)
-                                }
-                            )
-                        }
-                    }
+                    // Authentic Mint-Green LCD Screen
+                    LcdDisplay(
+                        trackTitle = trackTitle,
+                        artist = artistText,
+                        source = when {
+                            currentTape?.isSpotify == true -> "SPOTIFY"
+                            currentTape?.isHomeMade == true -> "MIXTAPE"
+                            else -> "ALBUM"
+                        },
+                        timeText = formattedTime,
+                        statusText = statusText
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                // 3. Bottom Controls Section: Speaker vents, switches, and transport buttons
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Speaker Vents on left, Rocker Switches on right
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.chassis_speaker_vents),
+                            contentDescription = "Speaker Vents",
+                            modifier = Modifier.size(width = 110.dp, height = 28.dp)
+                        )
 
-                // Helpful vintage tape instructions
-                Text(
-                    text = if (isTapeRunning) {
-                        "■ Press STOP to halt the tape. Press EJECT ⏏ when stopped to browse tapes!"
-                    } else {
-                        "⏏ Press EJECT to open the Shelf & Shoe Box.\nSelect an Artist or Playlist to load their tape!"
-                    },
-                    color = Color.White.copy(alpha = 0.55f),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    textAlign = TextAlign.Center
-                )
+                        SwitchesRow(
+                            isShuffleOn = isShuffleOn,
+                            isRepeatOn = isRepeatOn,
+                            feedback = feedback,
+                            onShuffleToggle = {
+                                isShuffleOn = !isShuffleOn
+                                onShuffleToggle(isShuffleOn)
+                            },
+                            onRepeatToggle = {
+                                isRepeatOn = !isRepeatOn
+                                onRepeatToggle(isRepeatOn)
+                            }
+                        )
+                    }
+
+                    // Transport Button Labels Row
+                    TransportButtonLabelsRow(isTapeRunning = isTapeRunning)
+
+                    // Transport Buttons Row
+                    TransportButtonsRow(
+                        isPlaying = isPlaying,
+                        isTapeRunning = isTapeRunning,
+                        currentPositionMs = currentPositionMs,
+                        totalDurationMs = totalDurationMs,
+                        feedback = feedback,
+                        onPlay = onPlay,
+                        onStop = onStop,
+                        onSkipPrev = onSkipPrev,
+                        onSkip = onSkip,
+                        onEject = onEject,
+                        onSeek = onSeek
+                    )
+                }
             }
         }
     }
