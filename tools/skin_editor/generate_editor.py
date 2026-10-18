@@ -1,0 +1,1848 @@
+import os
+
+html_content = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sunset Pixels - Visual Skin Studio</title>
+<script src="assets.js"></script>
+<style>
+  :root {
+    --bg-dark: #101116;
+    --panel-bg: #181922;
+    --panel-header: #20222e;
+    --panel-border: #2a2c3c;
+    --accent: #ff6622;
+    --accent-hover: #ff8844;
+    --accent-glow: rgba(255, 102, 34, 0.4);
+    --cyan: #00d4ff;
+    --cyan-glow: rgba(0, 212, 255, 0.35);
+    --text-primary: #f0f2f5;
+    --text-muted: #8c90a4;
+    --lcd-green: #90d880;
+    --lcd-bg: #142816;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
+  body {
+    background-color: var(--bg-dark);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Top Toolbar */
+  header {
+    height: 54px;
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    z-index: 100;
+  }
+
+  .logo-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-badge {
+    background: linear-gradient(135deg, #ff5e36, #ff9900);
+    color: #fff;
+    font-weight: 900;
+    font-size: 11px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .logo-title {
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.5px;
+  }
+
+  .toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  button, select {
+    background: #232532;
+    color: var(--text-primary);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  button:hover, select:hover {
+    background: #2e3142;
+    border-color: #43475f;
+  }
+
+  button.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    box-shadow: 0 0 10px var(--accent-glow);
+  }
+
+  button.cyan-btn {
+    background: #143242;
+    border-color: #1e5572;
+    color: #6ae0ff;
+  }
+  button.cyan-btn:hover {
+    background: #1a4258;
+    border-color: var(--cyan);
+  }
+
+  button.primary {
+    background: linear-gradient(135deg, #ff6622, #ff8833);
+    color: #fff;
+    border-color: #ff8833;
+    font-weight: 700;
+  }
+  button.primary:hover {
+    background: linear-gradient(135deg, #ff7733, #ff9944);
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+
+  .save-status {
+    font-size: 11px;
+    color: #4ade80;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 8px;
+    opacity: 0.9;
+  }
+
+  /* Sub Toolbar for Alignment & Spacing */
+  .sub-toolbar {
+    height: 40px;
+    background: var(--panel-header);
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    font-size: 12px;
+    z-index: 90;
+  }
+
+  .tools-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+  }
+
+  .btn-group {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .btn-group button {
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid var(--panel-border);
+    padding: 5px 9px;
+    font-size: 11px;
+  }
+  .btn-group button:last-child {
+    border-right: none;
+  }
+
+  .number-input-field {
+    width: 52px;
+    background: #14151c;
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    color: #fff;
+    padding: 4px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    outline: none;
+  }
+
+  /* Main Workspace */
+  .workspace {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* Left Elements Sidebar */
+  .sidebar {
+    width: 290px;
+    background: var(--panel-bg);
+    border-right: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-header {
+    padding: 12px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .elements-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .element-item {
+    background: #1e202a;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .element-item:hover {
+    background: #252835;
+  }
+
+  .element-item.selected {
+    border-color: var(--accent);
+    background: #2d2a38;
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .element-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .element-icon {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+
+  .element-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0.5;
+  }
+  .element-item:hover .element-actions, .element-item.selected .element-actions {
+    opacity: 1;
+  }
+
+  .icon-btn {
+    padding: 2px 5px;
+    font-size: 11px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+  }
+  .icon-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255,255,255,0.08);
+  }
+
+  /* Center Canvas Area */
+  .canvas-stage {
+    flex: 1;
+    background: #090a0e;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 40px;
+    background-image: 
+      radial-gradient(#1a1c26 1px, transparent 1px);
+    background-size: 20px 20px;
+    cursor: default;
+  }
+
+  /* Phone Device Frame */
+  .device-container {
+    position: relative;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.8), 0 0 0 12px #20222b, 0 0 0 14px #323644;
+    border-radius: 36px;
+    overflow: hidden;
+    background: #000;
+    transform-origin: center center;
+    transition: transform 0.1s ease;
+  }
+
+  .device-screen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #111;
+  }
+
+  .screen-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    image-rendering: pixelated;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Safe Insets Overlay */
+  .safe-inset-top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 36px;
+    background: rgba(0, 200, 255, 0.12);
+    border-bottom: 1px dashed rgba(0, 200, 255, 0.4);
+    pointer-events: none;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: rgba(0, 200, 255, 0.8);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .safe-inset-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 48px;
+    background: rgba(255, 60, 60, 0.12);
+    border-top: 1px dashed rgba(255, 60, 60, 0.4);
+    pointer-events: none;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: rgba(255, 80, 80, 0.8);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* Rubberband Marquee Selection Box */
+  .selection-marquee {
+    position: absolute;
+    border: 1px dashed var(--cyan);
+    background: rgba(0, 212, 255, 0.15);
+    pointer-events: none;
+    z-index: 999;
+    display: none;
+  }
+
+  /* Draggable Canvas Element */
+  .canvas-item {
+    position: absolute;
+    z-index: 10;
+    cursor: move;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .canvas-item > img {
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    image-rendering: pixelated;
+    display: block;
+    pointer-events: none;
+  }
+
+  .canvas-item.selected {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+    box-shadow: 0 0 10px var(--accent-glow);
+  }
+
+  .canvas-item.selected::after {
+    content: attr(data-label);
+    position: absolute;
+    top: -18px;
+    left: 0;
+    background: var(--accent);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 2px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 25;
+  }
+
+  /* Multi-selected secondary highlight */
+  .canvas-item.multi-selected {
+    outline: 2px solid var(--cyan);
+    outline-offset: -1px;
+    box-shadow: 0 0 10px var(--cyan-glow);
+  }
+  .canvas-item.multi-selected::after {
+    background: var(--cyan);
+    color: #0b1118;
+  }
+
+  /* Resize Handles */
+  .handle {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    display: none;
+    z-index: 20;
+  }
+
+  .canvas-item.selected .handle {
+    display: block;
+  }
+
+  .handle.nw { top: -4px; left: -4px; cursor: nwse-resize; }
+  .handle.ne { top: -4px; right: -4px; cursor: nesw-resize; }
+  .handle.sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+  .handle.se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+
+  /* Right Properties Panel */
+  .props-sidebar {
+    width: 290px;
+    background: var(--panel-bg);
+    border-left: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 14px;
+    gap: 16px;
+  }
+
+  .props-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .prop-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    gap: 8px;
+  }
+
+  .prop-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    flex: 1;
+  }
+
+  .prop-inputs {
+    display: flex;
+    gap: 6px;
+  }
+
+  .prop-field {
+    display: flex;
+    align-items: center;
+    background: #1e202a;
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    width: 72px;
+  }
+
+  .prop-field span {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-right: 4px;
+  }
+
+  .prop-field input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+    outline: none;
+    text-align: right;
+  }
+
+  /* Cassette Tape Mock Inside Door */
+  .cassette-mock-inner {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .cassette-mock-inner .tape-spool {
+    position: absolute;
+    width: 12% !important;
+    height: auto !important;
+    aspect-ratio: 1;
+    top: 45.7%;
+    transform: translate(-50%, -50%);
+    transform-origin: center center;
+    image-rendering: pixelated;
+  }
+  .cassette-mock-inner .tape-spool.left { left: 33.1%; }
+  .cassette-mock-inner .tape-spool.right { left: 66.5%; }
+
+  .cassette-mock-inner .tape-spool.spinning {
+    animation: rotateSpool 2.5s linear infinite;
+  }
+
+  @keyframes rotateSpool {
+    from { transform: translate(-50%, -50%) rotate(0deg); }
+    to { transform: translate(-50%, -50%) rotate(360deg); }
+  }
+
+  /* LCD Text Mock */
+  .lcd-content {
+    position: absolute;
+    top: 14%;
+    left: 10%;
+    right: 10%;
+    bottom: 14%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-family: monospace;
+    color: var(--lcd-green);
+    text-shadow: 0 0 5px rgba(144, 216, 128, 0.6);
+    pointer-events: none;
+    padding: 4px;
+    line-height: 1.2;
+  }
+
+  .lcd-track-title {
+    font-size: 11px;
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    letter-spacing: 1px;
+  }
+
+  .lcd-artist {
+    font-size: 9px;
+    opacity: 0.8;
+  }
+
+  .lcd-time-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    font-weight: bold;
+  }
+
+  /* Modal Dialog for Code Output */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .modal-overlay.open {
+    display: flex;
+  }
+
+  .modal-card {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    width: 640px;
+    max-width: 90vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+  }
+
+  .modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .modal-title {
+    font-weight: 700;
+    font-size: 16px;
+  }
+
+  .modal-body {
+    padding: 16px 20px;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .code-output {
+    width: 100%;
+    height: 320px;
+    background: #0d0e13;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    color: #4cd964;
+    font-family: Consolas, Monaco, monospace;
+    font-size: 12px;
+    padding: 12px;
+    resize: none;
+    outline: none;
+    white-space: pre;
+    overflow: auto;
+  }
+
+  .modal-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--panel-border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+</style>
+</head>
+<body>
+
+<!-- Hidden File Input for Loading Skins -->
+<input type="file" id="skin-file-input" accept=".json" style="display: none;" onchange="handleFileImport(event)">
+
+<!-- Header / Top Toolbar -->
+<header>
+  <div class="logo-group">
+    <div class="logo-badge">RETRO</div>
+    <div class="logo-title">Sunset Pixels - Visual Skin Studio</div>
+  </div>
+
+  <div class="toolbar-group">
+    <button id="btn-mode-portrait" class="active" onclick="switchOrientation('portrait')">
+      📱 Portrait (Pixel 8)
+    </button>
+    <button id="btn-mode-landscape" onclick="switchOrientation('landscape')">
+      📟 Landscape (Pixel 8)
+    </button>
+    <div style="width: 1px; height: 24px; background: var(--panel-border); margin: 0 4px;"></div>
+    <select id="select-zoom" onchange="setZoom(this.value)">
+      <option value="0.6">Zoom 60%</option>
+      <option value="0.75">Zoom 75%</option>
+      <option value="0.85" selected>Zoom 85%</option>
+      <option value="1.0">Zoom 100%</option>
+      <option value="1.25">Zoom 125%</option>
+    </select>
+    <button id="btn-toggle-insets" class="active" onclick="toggleInsets()">
+      🛡️ Safe Insets
+    </button>
+    <button id="btn-toggle-sim" onclick="toggleSimulation()">
+      ▶️ Test / Play
+    </button>
+  </div>
+
+  <div class="toolbar-group">
+    <div class="save-status" id="save-status-indicator">
+      <span>●</span> <span>Auto-saved</span>
+    </div>
+    <button onclick="triggerFileImport()">📂 Open Skin</button>
+    <button onclick="saveSkinFile()">💾 Save Skin</button>
+    <button class="primary" onclick="exportSkinJson()">📋 Copy skin.json</button>
+  </div>
+</header>
+
+<!-- Sub-Toolbar for Alignment, Centering & Uniform Spacing -->
+<div class="sub-toolbar">
+  <div class="tools-section">
+    <span class="section-label">Align:</span>
+    <div class="btn-group">
+      <button onclick="alignSelected('top')" title="Align Top Edges (Same Y)">⤒ Top</button>
+      <button onclick="alignSelected('bottom')" title="Align Bottom Edges">⤓ Bottom</button>
+      <button onclick="alignSelected('left')" title="Align Left Edges (Same X)">⇤ Left</button>
+      <button onclick="alignSelected('right')" title="Align Right Edges">⇥ Right</button>
+    </div>
+
+    <span class="section-label" style="margin-left: 8px;">Center:</span>
+    <div class="btn-group">
+      <button onclick="centerSelected('x')" title="Center along X Axis (Selection / Canvas)">↔ Center X</button>
+      <button onclick="centerSelected('y')" title="Center along Y Axis (Selection / Canvas)">↕ Center Y</button>
+      <button onclick="centerGroupOnCanvas()" title="Center entire group perfectly in the center of the screen">🎯 Screen Center</button>
+    </div>
+  </div>
+
+  <div class="tools-section">
+    <span class="section-label">Spacing:</span>
+    <input type="number" id="spacing-px" class="number-input-field" value="8" min="0" max="200" title="Pixel spacing between elements">
+    <span style="font-size: 11px; color: var(--text-muted); margin-right: 4px;">px</span>
+    <button class="cyan-btn" onclick="distributeSelected('horizontal')" title="Distribute horizontally with uniform pixel gap">
+      ↔ Set Horiz Spacing
+    </button>
+    <button class="cyan-btn" onclick="distributeSelected('vertical')" title="Distribute vertically with uniform pixel gap">
+      ↕ Set Vert Spacing
+    </button>
+  </div>
+</div>
+
+<!-- Main Workspace -->
+<div class="workspace">
+  <!-- Left Elements List -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span>Layout Elements</span>
+      <span id="elements-count" style="font-size: 11px; color: var(--accent);">0</span>
+    </div>
+    <div class="elements-list" id="elements-list">
+      <!-- Generated dynamically -->
+    </div>
+    <div style="padding: 10px; border-top: 1px solid var(--panel-border); display: flex; gap: 6px;">
+      <button style="flex: 1; justify-content: center;" onclick="addNewCustomElement()">+ Add Sprite</button>
+      <button style="justify-content: center;" onclick="resetToDefaults()" title="Reset current orientation to default">↺ Reset</button>
+    </div>
+  </aside>
+
+  <!-- Center Canvas Area -->
+  <main class="canvas-stage" id="stage" onmousedown="onStageMouseDown(event)">
+    <div class="device-container" id="device-container">
+      <div class="device-screen" id="device-screen">
+        <img class="screen-bg" id="screen-bg" alt="Background Texture">
+        
+        <!-- Safe Insets Markers -->
+        <div class="safe-inset-top" id="inset-top">Status Bar (Safe Drawing Inset)</div>
+        <div class="safe-inset-bottom" id="inset-bottom">System Nav Bar (Safe Drawing Inset)</div>
+
+        <!-- Rubberband Marquee Selection Box -->
+        <div class="selection-marquee" id="selection-marquee"></div>
+
+        <!-- Draggable elements are appended here -->
+        <div id="elements-layer"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Right Properties Inspector -->
+  <aside class="props-sidebar">
+    <div class="props-section-title">Selection Properties</div>
+    
+    <div id="no-selection-msg" style="color: var(--text-muted); font-size: 12px; font-style: italic; line-height: 1.5;">
+      Click an element to select it.<br><br>
+      💡 <b>Multi-Select Tips:</b><br>
+      • Hold <b>Shift</b> and click multiple elements.<br>
+      • Or drag a selection rectangle on the chassis canvas!<br>
+      • Dragging any selected element moves all selected elements together.<br>
+      • Use arrow keys (Shift for 10px) to nudge everything together.
+    </div>
+
+    <div id="multi-selection-msg" style="display: none; background: #152433; border: 1px solid #1f4660; border-radius: 6px; padding: 10px; color: var(--cyan); font-size: 12px;">
+      <div style="font-weight: 700; margin-bottom: 4px;">👥 Multi-Selection Active</div>
+      <div id="multi-count-text">3 items selected</div>
+      <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+        Use the <b>Align</b>, <b>Center</b>, and <b>Spacing</b> buttons above, or drag and nudge them together.
+      </div>
+    </div>
+
+    <div id="selection-inspector" style="display: none; flex-direction: column; gap: 14px;">
+      <div>
+        <div class="prop-label" style="margin-bottom: 4px;">Element Name</div>
+        <input type="text" id="prop-id" readonly style="width: 100%; background: #1e202a; border: 1px solid var(--panel-border); border-radius: 4px; padding: 6px 8px; color: #fff; font-size: 12px;">
+      </div>
+
+      <div>
+        <div class="prop-label" style="margin-bottom: 6px;">Position (Pixels)</div>
+        <div class="prop-row">
+          <div class="prop-field">
+            <span>X</span>
+            <input type="number" id="prop-x" onchange="updateSelectedProp('x', this.value)">
+          </div>
+          <div class="prop-field">
+            <span>Y</span>
+            <input type="number" id="prop-y" onchange="updateSelectedProp('y', this.value)">
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="prop-label" style="margin-bottom: 6px;">Size (Pixels)</div>
+        <div class="prop-row">
+          <div class="prop-field">
+            <span>W</span>
+            <input type="number" id="prop-w" onchange="updateSelectedProp('w', this.value)">
+          </div>
+          <div class="prop-field">
+            <span>H</span>
+            <input type="number" id="prop-h" onchange="updateSelectedProp('h', this.value)">
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="prop-label" style="margin-bottom: 4px;">Relative Canvas Percentages</div>
+        <div style="font-size: 11px; color: var(--text-muted); line-height: 1.6; background: #121319; padding: 8px; border-radius: 4px;">
+          <div>Left: <span id="prop-pct-x" style="color: var(--accent); font-weight: bold;"></span></div>
+          <div>Top: <span id="prop-pct-y" style="color: var(--accent); font-weight: bold;"></span></div>
+          <div>Width: <span id="prop-pct-w" style="color: var(--accent); font-weight: bold;"></span></div>
+          <div>Height: <span id="prop-pct-h" style="color: var(--accent); font-weight: bold;"></span></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="prop-label" style="margin-bottom: 4px;">Sprite Asset</div>
+        <select id="prop-sprite" style="width: 100%;" onchange="updateSelectedSprite(this.value)">
+          <!-- Options populated from ASSETS -->
+        </select>
+      </div>
+
+      <div>
+        <div class="prop-label" style="margin-bottom: 6px;">Layer Ordering</div>
+        <div style="display: flex; gap: 6px;">
+          <button style="flex: 1;" onclick="moveLayer(-1)">▼ Send Back</button>
+          <button style="flex: 1;" onclick="moveLayer(1)">▲ Bring Front</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="prop-label" style="margin-bottom: 6px;">Nudge Controls</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
+          <div></div>
+          <button onclick="nudge(0, -1)">▲</button>
+          <div></div>
+          <button onclick="nudge(-1, 0)">◀</button>
+          <button onclick="nudge(0, 1)">▼</button>
+          <button onclick="nudge(1, 0)">▶</button>
+        </div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-top: 6px; text-align: center;">
+          Arrow keys (Shift for 10px)
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- Modal Dialog for Exported Skin JSON -->
+<div class="modal-overlay" id="export-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="modal-title">🎉 Exported Skin Layout</div>
+      <button class="icon-btn" onclick="closeExportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
+        Here is your exact pixel-perfect layout definition! Copy this JSON and paste it into the chat with the assistant.
+      </p>
+      <textarea class="code-output" id="export-json-text" readonly></textarea>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeExportModal()">Close</button>
+      <button class="primary" onclick="copyModalJson()">📋 Copy to Clipboard</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- Configuration & Default Presets ---
+const STORAGE_KEY = 'sunset_pixels_skin_draft_v2';
+
+const VIEWPORTS = {
+  portrait: {
+    width: 412,
+    height: 915,
+    bg: 'chassis_texture_portrait.png',
+    insetTop: 36,
+    insetBottom: 48
+  },
+  landscape: {
+    width: 915,
+    height: 412,
+    bg: 'chassis_texture_bg.png',
+    insetTop: 24,
+    insetBottom: 24
+  }
+};
+
+const DEFAULT_SKIN = {
+  portrait: [
+    { id: 'cassette_door', name: 'Cassette Door', sprite: 'chassis_tape_door_frame.png', x: 26, y: 70, w: 360, h: 220, isCassette: true },
+    { id: 'speaker_vents', name: 'Speaker Vents', sprite: 'chassis_speaker_vents.png', x: 26, y: 310, w: 360, h: 42 },
+    { id: 'lcd_display', name: 'LCD Display', sprite: 'chassis_lcd_frame.png', x: 26, y: 375, w: 360, h: 180, isLcd: true },
+    { id: 'switch_shuffle', name: 'Shuffle Switch', sprite: 'switch_shuffle_off.png', x: 40, y: 600, w: 64, h: 32 },
+    { id: 'switch_repeat', name: 'Repeat Switch', sprite: 'switch_repeat_off.png', x: 120, y: 600, w: 64, h: 32 },
+    { id: 'btn_skip_prev', name: 'Prev Track', sprite: 'btn_skip_prev_unpressed.png', x: 24, y: 680, w: 48, h: 48 },
+    { id: 'btn_rewind', name: 'Rewind', sprite: 'btn_rewind_unpressed.png', x: 80, y: 680, w: 48, h: 48 },
+    { id: 'btn_play', name: 'Play', sprite: 'btn_play_unpressed.png', x: 136, y: 680, w: 56, h: 48 },
+    { id: 'btn_pause', name: 'Pause', sprite: 'btn_pause_unpressed.png', x: 200, y: 680, w: 56, h: 48 },
+    { id: 'btn_fast_fwd', name: 'Fast Forward', sprite: 'btn_fast_fwd_unpressed.png', x: 264, y: 680, w: 48, h: 48 },
+    { id: 'btn_skip_next', name: 'Next Track', sprite: 'btn_skip_next_unpressed.png', x: 320, y: 680, w: 48, h: 48 },
+    { id: 'btn_stop', name: 'Stop', sprite: 'btn_stop_unpressed.png', x: 120, y: 748, w: 72, h: 44 },
+    { id: 'btn_eject', name: 'Eject Door', sprite: 'btn_eject_unpressed.png', x: 210, y: 748, w: 72, h: 44 }
+  ],
+  landscape: [
+    { id: 'cassette_door', name: 'Cassette Door', sprite: 'chassis_tape_door_frame.png', x: 35, y: 45, w: 480, h: 290, isCassette: true },
+    { id: 'lcd_display', name: 'LCD Display', sprite: 'chassis_lcd_frame.png', x: 540, y: 45, w: 340, h: 170, isLcd: true },
+    { id: 'speaker_vents', name: 'Speaker Vents', sprite: 'chassis_speaker_vents.png', x: 540, y: 228, w: 340, h: 36 },
+    { id: 'switch_shuffle', name: 'Shuffle Switch', sprite: 'switch_shuffle_off.png', x: 540, y: 280, w: 60, h: 30 },
+    { id: 'switch_repeat', name: 'Repeat Switch', sprite: 'switch_repeat_off.png', x: 620, y: 280, w: 60, h: 30 },
+    { id: 'btn_skip_prev', name: 'Prev Track', sprite: 'btn_skip_prev_unpressed.png', x: 35, y: 345, w: 55, h: 42 },
+    { id: 'btn_rewind', name: 'Rewind', sprite: 'btn_rewind_unpressed.png', x: 98, y: 345, w: 55, h: 42 },
+    { id: 'btn_play', name: 'Play', sprite: 'btn_play_unpressed.png', x: 161, y: 345, w: 62, h: 42 },
+    { id: 'btn_pause', name: 'Pause', sprite: 'btn_pause_unpressed.png', x: 231, y: 345, w: 62, h: 42 },
+    { id: 'btn_fast_fwd', name: 'Fast Forward', sprite: 'btn_fast_fwd_unpressed.png', x: 301, y: 345, w: 55, h: 42 },
+    { id: 'btn_skip_next', name: 'Next Track', sprite: 'btn_skip_next_unpressed.png', x: 364, y: 345, w: 55, h: 42 },
+    { id: 'btn_stop', name: 'Stop', sprite: 'btn_stop_unpressed.png', x: 427, y: 345, w: 55, h: 42 },
+    { id: 'btn_eject', name: 'Eject Door', sprite: 'btn_eject_unpressed.png', x: 740, y: 335, w: 75, h: 46 }
+  ]
+};
+
+// State
+let currentOrientation = 'landscape';
+let elements = JSON.parse(JSON.stringify(DEFAULT_SKIN));
+let selectedElementIds = new Set();
+let zoomLevel = 0.85;
+let isSimulating = false;
+let simInterval = null;
+let simSeconds = 165;
+let dragContext = null;
+let marqueeContext = null;
+
+// --- Initialize App ---
+function init() {
+  loadFromLocalStorage();
+  populateSpriteDropdown();
+  applyOrientation();
+  renderElements();
+  setupKeyboardNudge();
+}
+
+// --- Local Storage Auto-Save ---
+function autoSave() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(elements));
+    const status = document.getElementById('save-status-indicator');
+    if (status) {
+      status.style.opacity = '1';
+      status.innerHTML = '<span>●</span> <span>Auto-saved</span>';
+      setTimeout(() => { status.style.opacity = '0.7'; }, 1500);
+    }
+  } catch (e) {
+    console.error('AutoSave failed:', e);
+  }
+}
+
+function loadFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.portrait && parsed.landscape) {
+        elements = parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load from storage:', e);
+  }
+}
+
+// --- Manual Save to JSON File ---
+function saveSkinFile() {
+  autoSave();
+  const exportPayload = generateFullSkinPayload();
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportPayload, null, 2));
+  const dlAnchor = document.createElement('a');
+  dlAnchor.setAttribute("href", dataStr);
+  dlAnchor.setAttribute("download", "sunset-pixels-skin.json");
+  document.body.appendChild(dlAnchor);
+  dlAnchor.click();
+  dlAnchor.remove();
+}
+
+function triggerFileImport() {
+  document.getElementById('skin-file-input').click();
+}
+
+function handleFileImport(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    try {
+      const parsed = JSON.parse(evt.target.result);
+      if (parsed.viewports && parsed.viewports.portrait && parsed.viewports.landscape) {
+        elements.portrait = parsed.viewports.portrait.elements.map(normalizeImportedElement);
+        elements.landscape = parsed.viewports.landscape.elements.map(normalizeImportedElement);
+      } else if (parsed.portrait && parsed.landscape) {
+        elements = parsed;
+      }
+      autoSave();
+      renderElements();
+      clearSelection();
+      alert('Skin file loaded successfully!');
+    } catch (err) {
+      alert('Error parsing JSON skin file: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function normalizeImportedElement(el) {
+  return {
+    id: el.id,
+    name: el.name || el.id,
+    sprite: el.sprite,
+    x: el.x || 0,
+    y: el.y || 0,
+    w: el.width || el.w || 60,
+    h: el.height || el.h || 40,
+    isCassette: el.isCassette || el.id === 'cassette_door',
+    isLcd: el.isLcd || el.id === 'lcd_display'
+  };
+}
+
+function populateSpriteDropdown() {
+  const sel = document.getElementById('prop-sprite');
+  sel.innerHTML = '';
+  if (window.ASSETS) {
+    const keys = Object.keys(window.ASSETS).sort();
+    keys.forEach(k => {
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = k;
+      sel.appendChild(opt);
+    });
+  }
+}
+
+function applyOrientation() {
+  const vp = VIEWPORTS[currentOrientation];
+  const dev = document.getElementById('device-container');
+  const bg = document.getElementById('screen-bg');
+  const insetTop = document.getElementById('inset-top');
+  const insetBottom = document.getElementById('inset-bottom');
+
+  dev.style.width = vp.width + 'px';
+  dev.style.height = vp.height + 'px';
+  dev.style.transform = `scale(${zoomLevel})`;
+
+  if (window.ASSETS && window.ASSETS[vp.bg]) {
+    bg.src = window.ASSETS[vp.bg];
+  }
+
+  insetTop.style.height = vp.insetTop + 'px';
+  insetBottom.style.height = vp.insetBottom + 'px';
+
+  document.getElementById('btn-mode-portrait').classList.toggle('active', currentOrientation === 'portrait');
+  document.getElementById('btn-mode-landscape').classList.toggle('active', currentOrientation === 'landscape');
+
+  clearSelection();
+  renderElements();
+}
+
+function switchOrientation(ori) {
+  currentOrientation = ori;
+  applyOrientation();
+}
+
+function setZoom(val) {
+  zoomLevel = parseFloat(val);
+  document.getElementById('device-container').style.transform = `scale(${zoomLevel})`;
+}
+
+function toggleInsets() {
+  const btn = document.getElementById('btn-toggle-insets');
+  const top = document.getElementById('inset-top');
+  const btm = document.getElementById('inset-bottom');
+  const isShown = top.style.display !== 'none';
+  top.style.display = isShown ? 'none' : 'flex';
+  btm.style.display = isShown ? 'none' : 'flex';
+  btn.classList.toggle('active', !isShown);
+}
+
+// --- Render Elements ---
+function renderElements() {
+  const currentList = elements[currentOrientation];
+  const layer = document.getElementById('elements-layer');
+  const sidebarList = document.getElementById('elements-list');
+
+  layer.innerHTML = '';
+  sidebarList.innerHTML = '';
+  document.getElementById('elements-count').textContent = currentList.length;
+
+  const isMulti = selectedElementIds.size > 1;
+
+  currentList.forEach((el, index) => {
+    const isSelected = selectedElementIds.has(el.id);
+
+    // 1. Sidebar Item
+    const sideItem = document.createElement('div');
+    sideItem.className = 'element-item' + (isSelected ? ' selected' : '');
+    sideItem.onclick = (e) => {
+      e.stopPropagation();
+      if (e.shiftKey || e.ctrlKey || e.metaKey) {
+        toggleElementSelection(el.id);
+      } else {
+        selectSingleElement(el.id);
+      }
+    };
+
+    const labelDiv = document.createElement('div');
+    labelDiv.className = 'element-label';
+    if (window.ASSETS && window.ASSETS[el.sprite]) {
+      const icon = document.createElement('img');
+      icon.className = 'element-icon';
+      icon.src = window.ASSETS[el.sprite];
+      labelDiv.appendChild(icon);
+    }
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = el.name;
+    labelDiv.appendChild(nameSpan);
+    sideItem.appendChild(labelDiv);
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'element-actions';
+    const delBtn = document.createElement('button');
+    delBtn.className = 'icon-btn';
+    delBtn.innerHTML = '🗑️';
+    delBtn.title = 'Delete';
+    delBtn.onclick = (e) => { e.stopPropagation(); deleteElement(el.id); };
+    actionsDiv.appendChild(delBtn);
+    sideItem.appendChild(actionsDiv);
+
+    sidebarList.appendChild(sideItem);
+
+    // 2. Canvas Item
+    const canvasItem = document.createElement('div');
+    let itemClass = 'canvas-item';
+    if (isSelected) {
+      itemClass += isMulti ? ' multi-selected' : ' selected';
+    }
+    canvasItem.className = itemClass;
+    canvasItem.id = 'canvas-item-' + el.id;
+    canvasItem.setAttribute('data-label', el.name);
+    canvasItem.style.left = el.x + 'px';
+    canvasItem.style.top = el.y + 'px';
+    canvasItem.style.width = el.w + 'px';
+    canvasItem.style.height = el.h + 'px';
+    canvasItem.style.zIndex = 10 + index;
+
+    // Sprite image
+    if (window.ASSETS && window.ASSETS[el.sprite]) {
+      const img = document.createElement('img');
+      img.src = window.ASSETS[el.sprite];
+      canvasItem.appendChild(img);
+    }
+
+    // Special: Cassette Door interactive mockup
+    if (el.isCassette) {
+      const mock = document.createElement('div');
+      mock.className = 'cassette-mock-inner';
+      mock.innerHTML = `
+        <img src="${window.ASSETS['deck_cassette_base.png'] || ''}" style="position: absolute; width: 100%; height: 100%; opacity: 0.95; top: 0; left: 0;">
+        <img class="tape-spool left ${isSimulating ? 'spinning' : ''}" src="${window.ASSETS['spinner_hub_left.png'] || ''}">
+        <img class="tape-spool right ${isSimulating ? 'spinning' : ''}" src="${window.ASSETS['spinner_hub_right.png'] || ''}">
+      `;
+      canvasItem.appendChild(mock);
+    }
+
+    // Special: LCD Display interactive mockup
+    if (el.isLcd) {
+      const mock = document.createElement('div');
+      mock.className = 'lcd-content';
+      const mm = String(Math.floor(simSeconds / 60)).padStart(2, '0');
+      const ss = String(simSeconds % 60).padStart(2, '0');
+      mock.innerHTML = `
+        <div class="lcd-track-title">01 SUNSET HIGHWAY</div>
+        <div class="lcd-artist">THE MIDNIGHT RUNNERS</div>
+        <div class="lcd-time-row">
+          <span>${isSimulating ? 'PLAY ►' : 'PAUSE ❚❚'}</span>
+          <span>${mm}:${ss} / 04:15</span>
+        </div>
+      `;
+      canvasItem.appendChild(mock);
+    }
+
+    // Resize handles (only when a single item is selected)
+    if (isSelected && !isMulti) {
+      ['nw', 'ne', 'sw', 'se'].forEach(h => {
+        const handle = document.createElement('div');
+        handle.className = 'handle ' + h;
+        handle.onmousedown = (e) => startResize(e, el.id, h);
+        canvasItem.appendChild(handle);
+      });
+    }
+
+    // Drag events
+    canvasItem.onmousedown = (e) => {
+      if (e.target.classList.contains('handle')) return;
+      onElementMouseDown(e, el.id);
+    };
+
+    layer.appendChild(canvasItem);
+  });
+
+  updateInspector();
+}
+
+// --- Multi-Selection Logic ---
+function clearSelection() {
+  selectedElementIds.clear();
+  updateSelectionUI();
+}
+
+function selectSingleElement(id) {
+  selectedElementIds.clear();
+  selectedElementIds.add(id);
+  updateSelectionUI();
+}
+
+function toggleElementSelection(id) {
+  if (selectedElementIds.has(id)) {
+    selectedElementIds.delete(id);
+  } else {
+    selectedElementIds.add(id);
+  }
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  renderElements();
+}
+
+function onElementMouseDown(e, id) {
+  e.stopPropagation();
+
+  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+    toggleElementSelection(id);
+    return;
+  }
+
+  // If clicked element is not in current multi-selection, select only this element
+  if (!selectedElementIds.has(id)) {
+    selectSingleElement(id);
+  }
+
+  startDragSelected(e);
+}
+
+// --- Multi-Drag Engine ---
+function startDragSelected(e) {
+  const currentList = elements[currentOrientation];
+  const selectedElements = currentList.filter(el => selectedElementIds.has(el.id));
+  if (selectedElements.length === 0) return;
+
+  const origins = {};
+  selectedElements.forEach(el => {
+    origins[el.id] = { x: el.x, y: el.y, w: el.w, h: el.h };
+  });
+
+  dragContext = {
+    startX: e.clientX,
+    startY: e.clientY,
+    origins: origins
+  };
+
+  window.addEventListener('mousemove', onDragMouseMove);
+  window.addEventListener('mouseup', onDragMouseUp);
+}
+
+function onDragMouseMove(e) {
+  if (!dragContext) return;
+  const vp = VIEWPORTS[currentOrientation];
+  const dx = Math.round((e.clientX - dragContext.startX) / zoomLevel);
+  const dy = Math.round((e.clientY - dragContext.startY) / zoomLevel);
+
+  const currentList = elements[currentOrientation];
+  currentList.forEach(el => {
+    if (dragContext.origins[el.id]) {
+      const orig = dragContext.origins[el.id];
+      el.x = Math.max(0, Math.min(vp.width - el.w, orig.x + dx));
+      el.y = Math.max(0, Math.min(vp.height - el.h, orig.y + dy));
+
+      const node = document.getElementById('canvas-item-' + el.id);
+      if (node) {
+        node.style.left = el.x + 'px';
+        node.style.top = el.y + 'px';
+      }
+    }
+  });
+
+  updateInspector();
+}
+
+function onDragMouseUp() {
+  if (dragContext) {
+    dragContext = null;
+    window.removeEventListener('mousemove', onDragMouseMove);
+    window.removeEventListener('mouseup', onDragMouseUp);
+    autoSave();
+    renderElements();
+  }
+}
+
+// --- Rubber-Band Marquee Selection ---
+function onStageMouseDown(e) {
+  if (e.target.closest('.canvas-item') || e.target.closest('button') || e.target.closest('input')) return;
+
+  const stage = document.getElementById('stage');
+  const screen = document.getElementById('device-screen');
+  const screenRect = screen.getBoundingClientRect();
+
+  if (!e.shiftKey && !e.ctrlKey) {
+    clearSelection();
+  }
+
+  const startCanvasX = (e.clientX - screenRect.left) / zoomLevel;
+  const startCanvasY = (e.clientY - screenRect.top) / zoomLevel;
+
+  marqueeContext = {
+    startX: startCanvasX,
+    startY: startCanvasY,
+    initiallySelected: new Set(selectedElementIds)
+  };
+
+  const marquee = document.getElementById('selection-marquee');
+  marquee.style.left = startCanvasX + 'px';
+  marquee.style.top = startCanvasY + 'px';
+  marquee.style.width = '0px';
+  marquee.style.height = '0px';
+  marquee.style.display = 'block';
+
+  window.addEventListener('mousemove', onMarqueeMouseMove);
+  window.addEventListener('mouseup', onMarqueeMouseUp);
+}
+
+function onMarqueeMouseMove(e) {
+  if (!marqueeContext) return;
+  const screen = document.getElementById('device-screen');
+  const screenRect = screen.getBoundingClientRect();
+
+  const curX = (e.clientX - screenRect.left) / zoomLevel;
+  const curY = (e.clientY - screenRect.top) / zoomLevel;
+
+  const left = Math.min(marqueeContext.startX, curX);
+  const top = Math.min(marqueeContext.startY, curY);
+  const width = Math.abs(curX - marqueeContext.startX);
+  const height = Math.abs(curY - marqueeContext.startY);
+
+  const marquee = document.getElementById('selection-marquee');
+  marquee.style.left = left + 'px';
+  marquee.style.top = top + 'px';
+  marquee.style.width = width + 'px';
+  marquee.style.height = height + 'px';
+
+  // Check intersection with all canvas items
+  const currentList = elements[currentOrientation];
+  const newSet = new Set(marqueeContext.initiallySelected);
+
+  currentList.forEach(el => {
+    const intersects = (
+      el.x < left + width &&
+      el.x + el.w > left &&
+      el.y < top + height &&
+      el.y + el.h > top
+    );
+    if (intersects) {
+      newSet.add(el.id);
+    }
+  });
+
+  selectedElementIds = newSet;
+  renderElements();
+}
+
+function onMarqueeMouseUp() {
+  if (marqueeContext) {
+    marqueeContext = null;
+    document.getElementById('selection-marquee').style.display = 'none';
+    window.removeEventListener('mousemove', onMarqueeMouseMove);
+    window.removeEventListener('mouseup', onMarqueeMouseUp);
+    renderElements();
+  }
+}
+
+// --- Resize Single Element ---
+let resizeContext = null;
+function startResize(e, id, handle) {
+  e.stopPropagation();
+  const el = elements[currentOrientation].find(item => item.id === id);
+  if (!el) return;
+
+  resizeContext = {
+    id: id,
+    handle: handle,
+    startX: e.clientX,
+    startY: e.clientY,
+    origX: el.x,
+    origY: el.y,
+    origW: el.w,
+    origH: el.h
+  };
+
+  window.addEventListener('mousemove', onResizeMouseMove);
+  window.addEventListener('mouseup', onResizeMouseUp);
+}
+
+function onResizeMouseMove(e) {
+  if (!resizeContext) return;
+  const el = elements[currentOrientation].find(item => item.id === resizeContext.id);
+  if (!el) return;
+
+  const dx = (e.clientX - resizeContext.startX) / zoomLevel;
+  const dy = (e.clientY - resizeContext.startY) / zoomLevel;
+  const h = resizeContext.handle;
+
+  if (h.includes('e')) {
+    el.w = Math.max(16, Math.round(resizeContext.origW + dx));
+  }
+  if (h.includes('s')) {
+    el.h = Math.max(16, Math.round(resizeContext.origH + dy));
+  }
+  if (h.includes('w')) {
+    const newW = Math.max(16, Math.round(resizeContext.origW - dx));
+    el.x = Math.round(resizeContext.origX + (resizeContext.origW - newW));
+    el.w = newW;
+  }
+  if (h.includes('n')) {
+    const newH = Math.max(16, Math.round(resizeContext.origH - dy));
+    el.y = Math.round(resizeContext.origY + (resizeContext.origH - newH));
+    el.h = newH;
+  }
+
+  const node = document.getElementById('canvas-item-' + el.id);
+  if (node) {
+    node.style.left = el.x + 'px';
+    node.style.top = el.y + 'px';
+    node.style.width = el.w + 'px';
+    node.style.height = el.h + 'px';
+  }
+
+  updateInspector();
+}
+
+function onResizeMouseUp() {
+  if (resizeContext) {
+    resizeContext = null;
+    window.removeEventListener('mousemove', onResizeMouseMove);
+    window.removeEventListener('mouseup', onResizeMouseUp);
+    autoSave();
+    renderElements();
+  }
+}
+
+// --- Alignment & Distribution Engines ---
+function getSelectedElements() {
+  const currentList = elements[currentOrientation];
+  return currentList.filter(el => selectedElementIds.has(el.id));
+}
+
+function alignSelected(edge) {
+  const sel = getSelectedElements();
+  if (sel.length < 2) {
+    alert('Select 2 or more elements to align them! (Hold Shift or drag to select)');
+    return;
+  }
+
+  if (edge === 'top') {
+    const minY = Math.min(...sel.map(el => el.y));
+    sel.forEach(el => el.y = minY);
+  } else if (edge === 'bottom') {
+    const maxBottom = Math.max(...sel.map(el => el.y + el.h));
+    sel.forEach(el => el.y = maxBottom - el.h);
+  } else if (edge === 'left') {
+    const minX = Math.min(...sel.map(el => el.x));
+    sel.forEach(el => el.x = minX);
+  } else if (edge === 'right') {
+    const maxX = Math.max(...sel.map(el => el.x + el.w));
+    sel.forEach(el => el.x = maxX - el.w);
+  }
+
+  autoSave();
+  renderElements();
+}
+
+function centerSelected(axis) {
+  const sel = getSelectedElements();
+  const vp = VIEWPORTS[currentOrientation];
+
+  if (sel.length === 0) return;
+
+  if (sel.length === 1) {
+    // Single item: center on screen
+    const el = sel[0];
+    if (axis === 'x') el.x = Math.round((vp.width - el.w) / 2);
+    if (axis === 'y') el.y = Math.round((vp.height - el.h) / 2);
+  } else {
+    // Multiple items: align their centers along the chosen axis
+    if (axis === 'x') {
+      const avgCenterX = Math.round(sel.reduce((acc, el) => acc + (el.x + el.w / 2), 0) / sel.length);
+      sel.forEach(el => el.x = Math.round(avgCenterX - el.w / 2));
+    } else if (axis === 'y') {
+      const avgCenterY = Math.round(sel.reduce((acc, el) => acc + (el.y + el.h / 2), 0) / sel.length);
+      sel.forEach(el => el.y = Math.round(avgCenterY - el.h / 2));
+    }
+  }
+
+  autoSave();
+  renderElements();
+}
+
+function centerGroupOnCanvas() {
+  const sel = getSelectedElements();
+  if (sel.length === 0) return;
+  const vp = VIEWPORTS[currentOrientation];
+
+  const minX = Math.min(...sel.map(el => el.x));
+  const maxX = Math.max(...sel.map(el => el.x + el.w));
+  const minY = Math.min(...sel.map(el => el.y));
+  const maxY = Math.max(...sel.map(el => el.y + el.h));
+
+  const groupW = maxX - minX;
+  const groupH = maxY - minY;
+
+  const targetGroupX = Math.round((vp.width - groupW) / 2);
+  const targetGroupY = Math.round((vp.height - groupH) / 2);
+
+  const deltaX = targetGroupX - minX;
+  const deltaY = targetGroupY - minY;
+
+  sel.forEach(el => {
+    el.x += deltaX;
+    el.y += deltaY;
+  });
+
+  autoSave();
+  renderElements();
+}
+
+function distributeSelected(direction) {
+  const sel = getSelectedElements();
+  if (sel.length < 2) {
+    alert('Select 2 or more elements to set spacing! (Hold Shift or drag to select)');
+    return;
+  }
+
+  const gapInput = document.getElementById('spacing-px');
+  const gap = parseInt(gapInput.value) || 0;
+
+  if (direction === 'horizontal') {
+    // Sort left to right
+    sel.sort((a, b) => a.x - b.x);
+    for (let i = 1; i < sel.length; i++) {
+      const prev = sel[i - 1];
+      sel[i].x = prev.x + prev.w + gap;
+    }
+  } else if (direction === 'vertical') {
+    // Sort top to bottom
+    sel.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < sel.length; i++) {
+      const prev = sel[i - 1];
+      sel[i].y = prev.y + prev.h + gap;
+    }
+  }
+
+  autoSave();
+  renderElements();
+}
+
+// --- Nudge & Keyboard ---
+function nudge(dx, dy) {
+  const sel = getSelectedElements();
+  if (sel.length === 0) return;
+  const vp = VIEWPORTS[currentOrientation];
+
+  sel.forEach(el => {
+    el.x = Math.max(0, Math.min(vp.width - el.w, el.x + dx));
+    el.y = Math.max(0, Math.min(vp.height - el.h, el.y + dy));
+  });
+
+  autoSave();
+  renderElements();
+}
+
+function setupKeyboardNudge() {
+  window.addEventListener('keydown', (e) => {
+    if (selectedElementIds.size === 0) return;
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+
+    const step = e.shiftKey ? 10 : 1;
+    if (e.key === 'ArrowLeft') { nudge(-step, 0); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { nudge(step, 0); e.preventDefault(); }
+    if (e.key === 'ArrowUp') { nudge(0, -step); e.preventDefault(); }
+    if (e.key === 'ArrowDown') { nudge(0, step); e.preventDefault(); }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      selectedElementIds.forEach(id => deleteElement(id));
+      clearSelection();
+    }
+  });
+}
+
+function deleteElement(id) {
+  elements[currentOrientation] = elements[currentOrientation].filter(item => item.id !== id);
+  selectedElementIds.delete(id);
+  autoSave();
+  renderElements();
+}
+
+function addNewCustomElement() {
+  const name = prompt('Enter element name (e.g. Bass Boost Switch, Brand Logo):');
+  if (!name) return;
+  const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  const vp = VIEWPORTS[currentOrientation];
+  const newEl = {
+    id: id + '_' + Date.now().toString().slice(-4),
+    name: name,
+    sprite: 'chassis_pressed.png',
+    x: Math.round(vp.width / 2 - 40),
+    y: Math.round(vp.height / 2 - 20),
+    w: 80,
+    h: 40
+  };
+  elements[currentOrientation].push(newEl);
+  autoSave();
+  selectSingleElement(newEl.id);
+}
+
+function moveLayer(dir) {
+  if (selectedElementIds.size !== 1) return;
+  const id = Array.from(selectedElementIds)[0];
+  const list = elements[currentOrientation];
+  const idx = list.findIndex(item => item.id === id);
+  if (idx < 0) return;
+  const target = idx + dir;
+  if (target < 0 || target >= list.length) return;
+  const temp = list[idx];
+  list[idx] = list[target];
+  list[target] = temp;
+  autoSave();
+  renderElements();
+}
+
+function resetToDefaults() {
+  if (confirm('Reset ' + currentOrientation + ' layout to default preset?')) {
+    elements[currentOrientation] = JSON.parse(JSON.stringify(DEFAULT_SKIN[currentOrientation]));
+    autoSave();
+    clearSelection();
+    renderElements();
+  }
+}
+
+// --- Inspector Updates ---
+function updateInspector() {
+  const noSel = document.getElementById('no-selection-msg');
+  const multiMsg = document.getElementById('multi-selection-msg');
+  const singleInsp = document.getElementById('selection-inspector');
+
+  if (selectedElementIds.size === 0) {
+    noSel.style.display = 'block';
+    multiMsg.style.display = 'none';
+    singleInsp.style.display = 'none';
+  } else if (selectedElementIds.size > 1) {
+    noSel.style.display = 'none';
+    multiMsg.style.display = 'block';
+    singleInsp.style.display = 'none';
+    document.getElementById('multi-count-text').textContent = `${selectedElementIds.size} elements selected`;
+  } else {
+    noSel.style.display = 'none';
+    multiMsg.style.display = 'none';
+    singleInsp.style.display = 'flex';
+
+    const id = Array.from(selectedElementIds)[0];
+    const el = elements[currentOrientation].find(item => item.id === id);
+    if (el) {
+      const vp = VIEWPORTS[currentOrientation];
+      document.getElementById('prop-id').value = el.name + ' (' + el.id + ')';
+      document.getElementById('prop-sprite').value = el.sprite;
+      document.getElementById('prop-x').value = el.x;
+      document.getElementById('prop-y').value = el.y;
+      document.getElementById('prop-w').value = el.w;
+      document.getElementById('prop-h').value = el.h;
+
+      document.getElementById('prop-pct-x').textContent = (el.x / vp.width * 100).toFixed(1) + '%';
+      document.getElementById('prop-pct-y').textContent = (el.y / vp.height * 100).toFixed(1) + '%';
+      document.getElementById('prop-pct-w').textContent = (el.w / vp.width * 100).toFixed(1) + '%';
+      document.getElementById('prop-pct-h').textContent = (el.h / vp.height * 100).toFixed(1) + '%';
+    }
+  }
+}
+
+function updateSelectedProp(prop, val) {
+  if (selectedElementIds.size !== 1) return;
+  const id = Array.from(selectedElementIds)[0];
+  const el = elements[currentOrientation].find(item => item.id === id);
+  if (!el) return;
+  el[prop] = Math.max(0, parseInt(val) || 0);
+  autoSave();
+  renderElements();
+}
+
+function updateSelectedSprite(sprite) {
+  if (selectedElementIds.size !== 1) return;
+  const id = Array.from(selectedElementIds)[0];
+  const el = elements[currentOrientation].find(item => item.id === id);
+  if (!el) return;
+  el.sprite = sprite;
+  autoSave();
+  renderElements();
+}
+
+// --- Simulation Mode ---
+function toggleSimulation() {
+  isSimulating = !isSimulating;
+  const btn = document.getElementById('btn-toggle-sim');
+  btn.classList.toggle('active', isSimulating);
+  btn.innerHTML = isSimulating ? '⏸️ Stop Test' : '▶️ Test / Play';
+
+  if (isSimulating) {
+    simInterval = setInterval(() => {
+      simSeconds++;
+      const mm = String(Math.floor(simSeconds / 60)).padStart(2, '0');
+      const ss = String(simSeconds % 60).padStart(2, '0');
+      document.querySelectorAll('.lcd-time-row span:last-child').forEach(s => s.textContent = `${mm}:${ss} / 04:15`);
+    }, 1000);
+  } else {
+    clearInterval(simInterval);
+  }
+  renderElements();
+}
+
+// --- Export & JSON Generation ---
+function generateFullSkinPayload() {
+  return {
+    version: 1,
+    skinName: "Sunset Pixels Walkman Classic",
+    viewports: {
+      portrait: {
+        canvasWidth: VIEWPORTS.portrait.width,
+        canvasHeight: VIEWPORTS.portrait.height,
+        elements: elements.portrait.map(el => ({
+          id: el.id,
+          name: el.name,
+          sprite: el.sprite,
+          x: el.x,
+          y: el.y,
+          width: el.w,
+          height: el.h,
+          relX: +(el.x / VIEWPORTS.portrait.width).toFixed(4),
+          relY: +(el.y / VIEWPORTS.portrait.height).toFixed(4),
+          relWidth: +(el.w / VIEWPORTS.portrait.width).toFixed(4),
+          relHeight: +(el.h / VIEWPORTS.portrait.height).toFixed(4)
+        }))
+      },
+      landscape: {
+        canvasWidth: VIEWPORTS.landscape.width,
+        canvasHeight: VIEWPORTS.landscape.height,
+        elements: elements.landscape.map(el => ({
+          id: el.id,
+          name: el.name,
+          sprite: el.sprite,
+          x: el.x,
+          y: el.y,
+          width: el.w,
+          height: el.h,
+          relX: +(el.x / VIEWPORTS.landscape.width).toFixed(4),
+          relY: +(el.y / VIEWPORTS.landscape.height).toFixed(4),
+          relWidth: +(el.w / VIEWPORTS.landscape.width).toFixed(4),
+          relHeight: +(el.h / VIEWPORTS.landscape.height).toFixed(4)
+        }))
+      }
+    }
+  };
+}
+
+function exportSkinJson() {
+  const exportPayload = generateFullSkinPayload();
+  const jsonStr = JSON.stringify(exportPayload, null, 2);
+  document.getElementById('export-json-text').value = jsonStr;
+  document.getElementById('export-modal').classList.add('open');
+}
+
+function closeExportModal() {
+  document.getElementById('export-modal').classList.remove('open');
+}
+
+function copyModalJson() {
+  const txt = document.getElementById('export-json-text');
+  txt.select();
+  navigator.clipboard.writeText(txt.value).then(() => {
+    alert('Copied skin.json to clipboard! Paste it into the chat with the assistant.');
+    closeExportModal();
+  });
+}
+
+// Start
+window.onload = init;
+</script>
+</body>
+</html>
+'''
+
+with open('tools/skin_editor/index.html', 'w', encoding='utf-8') as f:
+    f.write(html_content)
+
+print("Generated upgraded tools/skin_editor/index.html successfully!")

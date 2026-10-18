@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import com.retro.pixelplayer.skin.SkinManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -748,8 +749,11 @@ fun DeckScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
         ) {
+            val context = LocalContext.current
+            val skin = remember { SkinManager.loadSkin(context) }
+
             if (isLandscape) {
-                // HORIZONTAL (Landscape) Layout - Proportional coordinate match to master 1024x460 design
+                // HORIZONTAL (Landscape) Layout - Driven by Skin JSON
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -801,7 +805,7 @@ fun DeckScreen(
                         }
                     }
 
-                    // Main Chassis Deck & Controls mapped to master 1024x404 interior coordinate grid
+                    // Main Chassis Deck & Controls mapped to Skin layout coordinates
                     BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -809,267 +813,331 @@ fun DeckScreen(
                     ) {
                         val cw = maxWidth
                         val ch = maxHeight
+                        val vp = skin.landscape
 
-                    // 1. Cassette Door (Master: x=34, y=87, w=496, h=284; shunted slightly left to x=18)
-                    val deckW = minOf(cw * (496f / 1024f), ch * (284f / 404f) * (1024f / 593f))
-                    val deckX = cw * (18f / 1024f)
-                    val deckY = ch * (30f / 404f)
+                        // 1. Cassette Door
+                        val doorEl = vp.getElement("cassette_door")
+                        val deckW = cw * (doorEl?.relWidth ?: 0.5246f)
+                        val deckX = cw * (doorEl?.relX ?: 0.0383f)
+                        val deckY = ch * (doorEl?.relY ?: 0.1092f)
 
-                    CassetteDeck(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .offset(x = deckX, y = deckY)
-                            .width(deckW),
-                        isTapeInserted = isTapeInserted,
-                        isPlaying = isPlaying,
-                        tapeTitle = tapeTitle,
-                        tapeSubtitle = tapeSubtitle,
-                        labelColor = tapeLabelColor,
-                        shellColor = tapeShellColor,
-                        isHomeMade = currentTape?.isHomeMade ?: false,
-                        artworkBitmap = currentTape?.artworkBitmap,
-                        onEjectOrInsert = { onTapeDeckTapped() }
-                    )
-
-                    // 2. Speaker Vents (Master: x=40, y=398, w=210, h=50; shunted left to x=24)
-                    val ventsX = cw * (24f / 1024f)
-                    val ventsY = ch * (342f / 404f)
-                    val ventsW = cw * (210f / 1024f)
-                    val ventsH = ch * (50f / 404f)
-
-                    Image(
-                        painter = painterResource(id = R.drawable.chassis_speaker_vents),
-                        contentDescription = "Speaker Vents",
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .offset(x = ventsX, y = ventsY)
-                            .size(width = ventsW, height = ventsH),
-                        contentScale = ContentScale.FillBounds
-                    )
-
-                    // 3. Mint-Green LCD Display (Master: x=565, y=76, w=392, h=163; shunted left to x=547)
-                    val lcdW = minOf(cw * (392f / 1024f), ch * (163f / 404f) * (392f / 163f))
-                    val lcdX = cw * (547f / 1024f)
-                    val lcdY = ch * (30f / 404f)
-
-                    LcdDisplay(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .offset(x = lcdX, y = lcdY)
-                            .width(lcdW),
-                        trackTitle = trackTitle,
-                        artist = artistText,
-                        source = when {
-                            currentTape?.isSpotify == true -> "SPOTIFY"
-                            currentTape?.isHomeMade == true -> "MIXTAPE"
-                            else -> "ALBUM"
-                        },
-                        timeText = formattedTime,
-                        statusText = statusText
-                    )
-
-                    // 4. Transport Buttons Bank + Labels (Master: x=536..1018, w=482, bottom=368; shunted left to x=518..1000)
-                    val buttonsX = cw * (518f / 1024f)
-                    val buttonsW = cw * (482f / 1024f)
-                    val buttonsTopY = ch * (195f / 404f)
-
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .offset(x = buttonsX, y = buttonsTopY)
-                            .width(buttonsW),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        TransportButtonLabelsRow(isTapeRunning = isTapeRunning)
-
-                        TransportButtonsRow(
+                        CassetteDeck(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = deckX, y = deckY)
+                                .width(deckW),
+                            isTapeInserted = isTapeInserted,
                             isPlaying = isPlaying,
-                            isTapeRunning = isTapeRunning,
-                            currentPositionMs = currentPositionMs,
-                            totalDurationMs = totalDurationMs,
-                            feedback = feedback,
-                            onPlay = onPlay,
-                            onStop = onStop,
-                            onSkipPrev = onSkipPrev,
-                            onSkip = onSkip,
-                            onEject = onEject,
-                            onSeek = onSeek
-                        )
-                    }
-
-                    // 5. Shuffle & Repeat Switches (Master: x=778..912, y=398..448; shunted left to x=760)
-                    val switchesX = cw * (760f / 1024f)
-                    val switchesY = ch * (336f / 404f)
-                    val switchW = cw * (60f / 1024f)
-                    val switchH = ch * (31f / 404f)
-
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .offset(x = switchesX, y = switchesY)
-                    ) {
-                        SwitchesRow(
-                            isShuffleOn = isShuffleOn,
-                            isRepeatOn = isRepeatOn,
-                            feedback = feedback,
-                            switchWidth = switchW,
-                            switchHeight = switchH,
-                            onShuffleToggle = {
-                                isShuffleOn = !isShuffleOn
-                                onShuffleToggle(isShuffleOn)
-                            },
-                            onRepeatToggle = {
-                                isRepeatOn = !isRepeatOn
-                                onRepeatToggle(isRepeatOn)
-                            }
-                        )
-                    }
-                }
-            }
-        } else {
-            // VERTICAL (Portrait) Layout - Full-screen Walkman with bottom-anchored controls
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                // 1. Header Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 2.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "◆ SUNSET PIXELS ◆",
-                        color = PixelPalette.ChassisHighlight,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 13.sp
-                    )
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        MechanicalButton(
-                            label = if (isSpotifyLoggedIn) "🟢 LINKED" else "🟢 SPOTIFY",
-                            baseColor = if (isSpotifyLoggedIn) Color(0xFF1DB954) else Color(0xFF1B5E20),
-                            highlightColor = if (isSpotifyLoggedIn) Color(0xFF4ADE80) else Color(0xFF2E7D32),
-                            shadowColor = Color(0xFF0A2910),
-                            labelColor = if (isSpotifyLoggedIn) Color(0xFF0A140E) else Color(0xFFE0E0E0),
-                            width = 86.dp,
-                            height = 30.dp,
-                            onDownPress = { feedback?.onTick() },
-                            onClick = { onSpotifyClicked() }
+                            tapeTitle = tapeTitle,
+                            tapeSubtitle = tapeSubtitle,
+                            labelColor = tapeLabelColor,
+                            shellColor = tapeShellColor,
+                            isHomeMade = currentTape?.isHomeMade ?: false,
+                            artworkBitmap = currentTape?.artworkBitmap,
+                            onEjectOrInsert = { onTapeDeckTapped() }
                         )
 
-                        MechanicalButton(
-                            label = "TAPES 📚",
-                            baseColor = Color(0xFF4E342E),
-                            highlightColor = Color(0xFF6D4C41),
-                            shadowColor = Color(0xFF3E2723),
-                            width = 80.dp,
-                            height = 30.dp,
-                            onDownPress = { feedback?.onTick() },
-                            onClick = { onBrowseTapesClicked() }
-                        )
-                    }
-                }
+                        // 2. Speaker Vents
+                        val ventsEl = vp.getElement("speaker_vents")
+                        val ventsX = cw * (ventsEl?.relX ?: 0.1202f)
+                        val ventsY = ch * (ventsEl?.relY ?: 0.8519f)
+                        val ventsW = cw * (ventsEl?.relWidth ?: 0.3716f)
+                        val ventsH = ch * (ventsEl?.relHeight ?: 0.0874f)
 
-                // 2. Middle Section: Cassette Door & LCD Screen
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Cassette Door with AUTO REVERSE and warm top lamp
-                    CassetteDeck(
-                        isTapeInserted = isTapeInserted,
-                        isPlaying = isPlaying,
-                        tapeTitle = tapeTitle,
-                        tapeSubtitle = tapeSubtitle,
-                        labelColor = tapeLabelColor,
-                        shellColor = tapeShellColor,
-                        isHomeMade = currentTape?.isHomeMade ?: false,
-                        artworkBitmap = currentTape?.artworkBitmap,
-                        onEjectOrInsert = { onTapeDeckTapped() }
-                    )
-
-                    // Authentic Mint-Green LCD Screen
-                    LcdDisplay(
-                        trackTitle = trackTitle,
-                        artist = artistText,
-                        source = when {
-                            currentTape?.isSpotify == true -> "SPOTIFY"
-                            currentTape?.isHomeMade == true -> "MIXTAPE"
-                            else -> "ALBUM"
-                        },
-                        timeText = formattedTime,
-                        statusText = statusText
-                    )
-                }
-
-                // 3. Bottom Controls Section: Speaker vents, switches, and transport buttons
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Speaker Vents on left, Rocker Switches on right
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
                         Image(
                             painter = painterResource(id = R.drawable.chassis_speaker_vents),
                             contentDescription = "Speaker Vents",
-                            modifier = Modifier.size(width = 110.dp, height = 28.dp)
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = ventsX, y = ventsY)
+                                .size(width = ventsW, height = ventsH),
+                            contentScale = ContentScale.FillBounds
                         )
 
-                        SwitchesRow(
-                            isShuffleOn = isShuffleOn,
-                            isRepeatOn = isRepeatOn,
-                            feedback = feedback,
-                            onShuffleToggle = {
-                                isShuffleOn = !isShuffleOn
-                                onShuffleToggle(isShuffleOn)
+                        // 3. Mint-Green LCD Display
+                        val lcdEl = vp.getElement("lcd_display")
+                        val lcdW = cw * (lcdEl?.relWidth ?: 0.3716f)
+                        val lcdX = cw * (lcdEl?.relX ?: 0.5792f)
+                        val lcdY = ch * (lcdEl?.relY ?: 0.1553f)
+
+                        LcdDisplay(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = lcdX, y = lcdY)
+                                .width(lcdW),
+                            trackTitle = trackTitle,
+                            artist = artistText,
+                            source = when {
+                                currentTape?.isSpotify == true -> "SPOTIFY"
+                                currentTape?.isHomeMade == true -> "MIXTAPE"
+                                else -> "ALBUM"
                             },
-                            onRepeatToggle = {
-                                isRepeatOn = !isRepeatOn
-                                onRepeatToggle(isRepeatOn)
-                            }
+                            timeText = formattedTime,
+                            statusText = statusText
                         )
+
+                        // 4. Transport Buttons Bank + Labels
+                        val btnPrev = vp.getElement("btn_skip_prev")
+                        val buttonsX = cw * (btnPrev?.relX ?: 0.5814f)
+                        val buttonsW = cw * 0.375f
+                        val buttonsTopY = ch * (btnPrev?.relY ?: 0.6602f)
+
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = buttonsX, y = buttonsTopY)
+                                .width(buttonsW),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            TransportButtonLabelsRow(isTapeRunning = isTapeRunning)
+
+                            TransportButtonsRow(
+                                isPlaying = isPlaying,
+                                isTapeRunning = isTapeRunning,
+                                currentPositionMs = currentPositionMs,
+                                totalDurationMs = totalDurationMs,
+                                feedback = feedback,
+                                onPlay = onPlay,
+                                onStop = onStop,
+                                onSkipPrev = onSkipPrev,
+                                onSkip = onSkip,
+                                onEject = onEject,
+                                onSeek = onSeek
+                            )
+                        }
+
+                        // 5. Shuffle & Repeat Switches
+                        val shuffleEl = vp.getElement("switch_shuffle")
+                        val switchesX = cw * (shuffleEl?.relX ?: 0.6656f)
+                        val switchesY = ch * (shuffleEl?.relY ?: 0.8495f)
+                        val switchW = cw * (shuffleEl?.relWidth ?: 0.0656f)
+                        val switchH = ch * (shuffleEl?.relHeight ?: 0.0728f)
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = switchesX, y = switchesY)
+                        ) {
+                            SwitchesRow(
+                                isShuffleOn = isShuffleOn,
+                                isRepeatOn = isRepeatOn,
+                                feedback = feedback,
+                                switchWidth = switchW,
+                                switchHeight = switchH,
+                                onShuffleToggle = {
+                                    isShuffleOn = !isShuffleOn
+                                    onShuffleToggle(isShuffleOn)
+                                },
+                                onRepeatToggle = {
+                                    isRepeatOn = !isRepeatOn
+                                    onRepeatToggle(isRepeatOn)
+                                }
+                            )
+                        }
+                    }
+                }
+            } else {
+                // VERTICAL (Portrait) Layout - Driven by Skin JSON
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Header Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "◆ SUNSET PIXELS ◆",
+                            color = PixelPalette.ChassisHighlight,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 13.sp
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            MechanicalButton(
+                                label = if (isSpotifyLoggedIn) "🟢 LINKED" else "🟢 SPOTIFY",
+                                baseColor = if (isSpotifyLoggedIn) Color(0xFF1DB954) else Color(0xFF1B5E20),
+                                highlightColor = if (isSpotifyLoggedIn) Color(0xFF4ADE80) else Color(0xFF2E7D32),
+                                shadowColor = Color(0xFF0A2910),
+                                labelColor = if (isSpotifyLoggedIn) Color(0xFF0A140E) else Color(0xFFE0E0E0),
+                                width = 86.dp,
+                                height = 30.dp,
+                                onDownPress = { feedback?.onTick() },
+                                onClick = { onSpotifyClicked() }
+                            )
+
+                            MechanicalButton(
+                                label = "TAPES 📚",
+                                baseColor = Color(0xFF4E342E),
+                                highlightColor = Color(0xFF6D4C41),
+                                shadowColor = Color(0xFF3E2723),
+                                width = 80.dp,
+                                height = 30.dp,
+                                onDownPress = { feedback?.onTick() },
+                                onClick = { onBrowseTapesClicked() }
+                            )
+                        }
                     }
 
-                    // Transport Button Labels Row
-                    TransportButtonLabelsRow(isTapeRunning = isTapeRunning)
+                    // Main Chassis Coordinate Area
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
+                        val cw = maxWidth
+                        val ch = maxHeight
+                        val vp = skin.portrait
 
-                    // Transport Buttons Row
-                    TransportButtonsRow(
-                        isPlaying = isPlaying,
-                        isTapeRunning = isTapeRunning,
-                        currentPositionMs = currentPositionMs,
-                        totalDurationMs = totalDurationMs,
-                        feedback = feedback,
-                        onPlay = onPlay,
-                        onStop = onStop,
-                        onSkipPrev = onSkipPrev,
-                        onSkip = onSkip,
-                        onEject = onEject,
-                        onSeek = onSeek
-                    )
+                        // Cassette Door
+                        val doorEl = vp.getElement("cassette_door")
+                        val deckX = cw * (doorEl?.relX ?: 0.0534f)
+                        val deckY = ch * (doorEl?.relY ?: 0.1301f)
+                        val deckW = cw * (doorEl?.relWidth ?: 0.8738f)
+
+                        CassetteDeck(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = deckX, y = deckY)
+                                .width(deckW),
+                            isTapeInserted = isTapeInserted,
+                            isPlaying = isPlaying,
+                            tapeTitle = tapeTitle,
+                            tapeSubtitle = tapeSubtitle,
+                            labelColor = tapeLabelColor,
+                            shellColor = tapeShellColor,
+                            isHomeMade = currentTape?.isHomeMade ?: false,
+                            artworkBitmap = currentTape?.artworkBitmap,
+                            onEjectOrInsert = { onTapeDeckTapped() }
+                        )
+
+                        // Mint-Green LCD Display
+                        val lcdEl = vp.getElement("lcd_display")
+                        val lcdX = cw * (lcdEl?.relX ?: 0.0534f)
+                        val lcdY = ch * (lcdEl?.relY ?: 0.4273f)
+                        val lcdW = cw * (lcdEl?.relWidth ?: 0.8738f)
+
+                        LcdDisplay(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = lcdX, y = lcdY)
+                                .width(lcdW),
+                            trackTitle = trackTitle,
+                            artist = artistText,
+                            source = when {
+                                currentTape?.isSpotify == true -> "SPOTIFY"
+                                currentTape?.isHomeMade == true -> "MIXTAPE"
+                                else -> "ALBUM"
+                            },
+                            timeText = formattedTime,
+                            statusText = statusText
+                        )
+
+                        // Shuffle & Repeat Rocker Switches
+                        val shuffleEl = vp.getElement("switch_shuffle")
+                        val repeatEl = vp.getElement("switch_repeat")
+                        val shuffleX = cw * (shuffleEl?.relX ?: 0.1286f)
+                        val shuffleY = ch * (shuffleEl?.relY ?: 0.6514f)
+                        val switchW = cw * (shuffleEl?.relWidth ?: 0.1553f)
+                        val switchH = ch * (shuffleEl?.relHeight ?: 0.0350f)
+                        val repeatX = cw * (repeatEl?.relX ?: 0.7209f)
+                        val repeatY = ch * (repeatEl?.relY ?: 0.6546f)
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = shuffleX, y = shuffleY)
+                        ) {
+                            PixelArtButton(
+                                unpressedResId = if (isShuffleOn) R.drawable.switch_shuffle_on else R.drawable.switch_shuffle_off,
+                                pressedResId = if (isShuffleOn) R.drawable.switch_shuffle_on else R.drawable.switch_shuffle_off,
+                                width = switchW,
+                                height = switchH,
+                                onDownPress = { feedback?.onTick() },
+                                onClick = {
+                                    isShuffleOn = !isShuffleOn
+                                    onShuffleToggle(isShuffleOn)
+                                }
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = repeatX, y = repeatY)
+                        ) {
+                            PixelArtButton(
+                                unpressedResId = if (isRepeatOn) R.drawable.switch_repeat_on else R.drawable.switch_repeat_off,
+                                pressedResId = if (isRepeatOn) R.drawable.switch_repeat_on else R.drawable.switch_repeat_off,
+                                width = switchW,
+                                height = switchH,
+                                onDownPress = { feedback?.onTick() },
+                                onClick = {
+                                    isRepeatOn = !isRepeatOn
+                                    onRepeatToggle(isRepeatOn)
+                                }
+                            )
+                        }
+
+                        // Transport Buttons Row + Labels
+                        val skipPrevEl = vp.getElement("btn_skip_prev")
+                        val buttonsX = cw * (skipPrevEl?.relX ?: 0.0704f)
+                        val buttonsY = ch * (skipPrevEl?.relY ?: 0.7224f)
+                        val buttonsW = cw * 0.83f
+
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = buttonsX, y = buttonsY)
+                                .width(buttonsW),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            TransportButtonLabelsRow(isTapeRunning = isTapeRunning)
+
+                            TransportButtonsRow(
+                                isPlaying = isPlaying,
+                                isTapeRunning = isTapeRunning,
+                                currentPositionMs = currentPositionMs,
+                                totalDurationMs = totalDurationMs,
+                                feedback = feedback,
+                                onPlay = onPlay,
+                                onStop = onStop,
+                                onSkipPrev = onSkipPrev,
+                                onSkip = onSkip,
+                                onEject = onEject,
+                                onSeek = onSeek
+                            )
+                        }
+
+                        // Speaker Vents
+                        val ventsEl = vp.getElement("speaker_vents")
+                        val ventsX = cw * (ventsEl?.relX ?: 0.0631f)
+                        val ventsY = ch * (ventsEl?.relY ?: 0.8426f)
+                        val ventsW = cw * (ventsEl?.relWidth ?: 0.8738f)
+                        val ventsH = ch * (ventsEl?.relHeight ?: 0.0459f)
+
+                        Image(
+                            painter = painterResource(id = R.drawable.chassis_speaker_vents),
+                            contentDescription = "Speaker Vents",
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = ventsX, y = ventsY)
+                                .size(width = ventsW, height = ventsH),
+                            contentScale = ContentScale.FillBounds
+                        )
+                    }
                 }
             }
-        }
     }
 }
 }
