@@ -344,50 +344,38 @@ fun RetroAppRoot(
         }
     }
 
+    fun startNativeExoPlayerStream(track: Track, thisSession: Int) {
+        if (playSessionId != thisSession) return
+        isSpotifyRemotePlaying = false
+        coroutineScope.launch {
+            val streamUri = SpotifyManager.resolveTrackStreamUri(track)
+            if (playSessionId != thisSession) return@launch
+            if (streamUri != null) {
+                val uriStr = streamUri.toString()
+                val mediaItem = if (uriStr.contains(".m3u8")) {
+                    MediaItem.Builder()
+                        .setUri(streamUri)
+                        .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
+                        .build()
+                } else {
+                    MediaItem.fromUri(streamUri)
+                }
+                exoPlayer.setMediaItem(mediaItem)
+                exoPlayer.prepare()
+                exoPlayer.play()
+                isPaused = false
+            } else {
+                triggerTapePlaybackError("STREAM NOT FOUND")
+            }
+        }
+    }
+
     fun playTrack(track: Track?) {
         if (track == null || !isTapeInserted) return
         val scheme = track.contentUri.scheme ?: ""
         val isSpotifyTrack = (scheme == "spotify") || (track.spotifyUri != null) || (currentTape?.isSpotify == true)
 
-        if (isSpotifyTrack) {
-            // Check if Spotify is installed
-            if (!SpotifyRemoteManager.isInstalled(context)) {
-                triggerTapePlaybackError("NO SPOTIFY APP")
-                return
-            }
-
-            // Play official authentic track directly through Spotify App Remote!
-            exoPlayer.stop()
-            isSpotifyRemotePlaying = true
-            isPlaying = true
-            isPaused = false
-            currentPositionMs = 0L
-            totalDurationMs = track.durationMs.coerceAtLeast(30_000L)
-
-            val uriToPlay = track.spotifyUri
-                ?: if (scheme == "spotify") track.contentUri.toString()
-                else "spotify:track:${track.id}"
-
-            val thisSession = ++playSessionId
-            SpotifyRemoteManager.play(
-                context = context,
-                spotifyUri = uriToPlay,
-                onError = { errMsg ->
-                    triggerTapePlaybackError(errMsg)
-                }
-            )
-
-            // Watchdog: If Spotify doesn't respond or connect within 3.5 seconds, halt and warn user
-            coroutineScope.launch {
-                delay(3500)
-                if (playSessionId == thisSession && isSpotifyRemotePlaying && isPlaying && !isPaused) {
-                    val state = SpotifyRemoteManager.playerState.value
-                    if (state == null || state.isPaused) {
-                        triggerTapePlaybackError("SPOTIFY NOT RUNNING")
-                    }
-                }
-            }
-        } else {
+        if (!isSpotifyTrack || scheme == "content" || scheme == "file") {
             // Local device audio track
             if (isSpotifyRemotePlaying) {
                 SpotifyRemoteManager.pause(context)
@@ -398,6 +386,56 @@ fun RetroAppRoot(
             exoPlayer.prepare()
             exoPlayer.play()
             isPaused = false
+            return
+        }
+
+        // Spotify Track Playback:
+        // Pre-resolve next track for instant skipping
+        if (activeTracks.size > 1) {
+            val nextIdx = (activeTrackIndex + 1) % activeTracks.size
+            val nextTrack = activeTracks[nextIdx]
+            coroutineScope.launch {
+                SpotifyManager.resolveTrackStreamUri(nextTrack)
+            }
+        }
+
+        val thisSession = ++playSessionId
+        exoPlayer.stop()
+        isPlaying = true
+        isPaused = false
+        currentPositionMs = 0L
+        totalDurationMs = track.durationMs.coerceAtLeast(30_000L)
+
+        // If Spotify App Remote is installed and already connected, attempt official remote playback
+        if (SpotifyRemoteManager.isInstalled(context) && isSpotifyRemoteConnected) {
+            isSpotifyRemotePlaying = true
+            val uriToPlay = track.spotifyUri
+                ?: if (scheme == "spotify") track.contentUri.toString()
+                else "spotify:track:${track.id}"
+
+            SpotifyRemoteManager.play(
+                context = context,
+                spotifyUri = uriToPlay,
+                onError = {
+                    // Fall back cleanly to native ExoPlayer audio stream on any Spotify remote failure
+                    startNativeExoPlayerStream(track, thisSession)
+                }
+            )
+
+            // Watchdog: If Spotify doesn't respond or start playback within 3 seconds, seamlessly stream via ExoPlayer
+            coroutineScope.launch {
+                delay(3000)
+                if (playSessionId == thisSession && isSpotifyRemotePlaying && isPlaying && !isPaused) {
+                    val state = SpotifyRemoteManager.playerState.value
+                    if (state == null || state.isPaused) {
+                        startNativeExoPlayerStream(track, thisSession)
+                    }
+                }
+            }
+        } else {
+            // Previewer, emulator, or device without active Spotify App Remote connection:
+            // Stream natively and immediately inside ExoPlayer!
+            startNativeExoPlayerStream(track, thisSession)
         }
     }
 
