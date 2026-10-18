@@ -660,7 +660,7 @@ fun DeckScreen(
     isSpotifyLoggedIn: Boolean = false,
     currentPositionMs: Long,
     totalDurationMs: Long,
-    feedback: MechanicalFeedback,
+    feedback: MechanicalFeedback? = null,
     onSpotifyClicked: () -> Unit = {},
     onPlay: () -> Unit,
     onPause: () -> Unit,
@@ -784,7 +784,7 @@ fun DeckScreen(
                                 labelColor = if (isSpotifyLoggedIn) Color(0xFF0A140E) else Color(0xFFE0E0E0),
                                 width = 88.dp,
                                 height = 25.dp,
-                                onDownPress = { feedback.onTick() },
+                                onDownPress = { feedback?.onTick() },
                                 onClick = { onSpotifyClicked() }
                             )
 
@@ -795,7 +795,7 @@ fun DeckScreen(
                                 shadowColor = Color(0xFF3E2723),
                                 width = 82.dp,
                                 height = 25.dp,
-                                onDownPress = { feedback.onTick() },
+                                onDownPress = { feedback?.onTick() },
                                 onClick = { onBrowseTapesClicked() }
                             )
                         }
@@ -963,7 +963,7 @@ fun DeckScreen(
                             labelColor = if (isSpotifyLoggedIn) Color(0xFF0A140E) else Color(0xFFE0E0E0),
                             width = 86.dp,
                             height = 30.dp,
-                            onDownPress = { feedback.onTick() },
+                            onDownPress = { feedback?.onTick() },
                             onClick = { onSpotifyClicked() }
                         )
 
@@ -974,7 +974,7 @@ fun DeckScreen(
                             shadowColor = Color(0xFF3E2723),
                             width = 80.dp,
                             height = 30.dp,
-                            onDownPress = { feedback.onTick() },
+                            onDownPress = { feedback?.onTick() },
                             onClick = { onBrowseTapesClicked() }
                         )
                     }
@@ -1189,7 +1189,7 @@ private fun TransportButtonsRow(
     isTapeRunning: Boolean,
     currentPositionMs: Long,
     totalDurationMs: Long,
-    feedback: MechanicalFeedback,
+    feedback: MechanicalFeedback? = null,
     onPlay: () -> Unit,
     onStop: () -> Unit,
     onSkipPrev: () -> Unit,
@@ -1221,7 +1221,7 @@ private fun TransportButtonsRow(
                 pressedResId = R.drawable.btn_skip_prev_pressed,
                 width = wSkip,
                 height = hStd,
-                onDownPress = { feedback.onTick() },
+                onDownPress = { feedback?.onTick() },
                 onClick = { onSkipPrev() }
             )
 
@@ -1231,9 +1231,9 @@ private fun TransportButtonsRow(
                 pressedResId = R.drawable.btn_rewind_pressed,
                 width = wRewind,
                 height = hStd,
-                onDownPress = { feedback.onRewindPress() },
+                onDownPress = { feedback?.onRewindPress() },
                 onHoldRepeat = {
-                    feedback.onTick()
+                    feedback?.onTick()
                     onSeek(-5_000L)
                 },
                 onClick = {
@@ -1248,7 +1248,7 @@ private fun TransportButtonsRow(
                 isLatched = isPlaying,
                 width = wPlay,
                 height = hPlay,
-                onDownPress = { feedback.onPlayPress() },
+                onDownPress = { feedback?.onPlayPress() },
                 onClick = { onPlay() }
             )
 
@@ -1258,9 +1258,9 @@ private fun TransportButtonsRow(
                 pressedResId = R.drawable.btn_fast_fwd_pressed,
                 width = wFastFwd,
                 height = hStd,
-                onDownPress = { feedback.onRewindPress() },
+                onDownPress = { feedback?.onRewindPress() },
                 onHoldRepeat = {
-                    feedback.onTick()
+                    feedback?.onTick()
                     onSeek(5_000L)
                 },
                 onClick = {
@@ -1274,7 +1274,7 @@ private fun TransportButtonsRow(
                 pressedResId = R.drawable.btn_skip_next_pressed,
                 width = wSkipNext,
                 height = hStd,
-                onDownPress = { feedback.onTick() },
+                onDownPress = { feedback?.onTick() },
                 onClick = { onSkip() }
             )
 
@@ -1285,7 +1285,7 @@ private fun TransportButtonsRow(
                     pressedResId = R.drawable.btn_stop_pressed,
                     width = wEject,
                     height = hStd,
-                    onDownPress = { feedback.onStopPress() },
+                    onDownPress = { feedback?.onStopPress() },
                     onClick = { onStop() }
                 )
             } else {
@@ -1294,7 +1294,7 @@ private fun TransportButtonsRow(
                     pressedResId = R.drawable.btn_eject_pressed,
                     width = wEject,
                     height = hStd,
-                    onDownPress = { feedback.onTapeLatch() },
+                    onDownPress = { feedback?.onTapeLatch() },
                     onClick = { onEject() }
                 )
             }
@@ -1306,7 +1306,7 @@ private fun TransportButtonsRow(
 private fun SwitchesRow(
     isShuffleOn: Boolean,
     isRepeatOn: Boolean,
-    feedback: MechanicalFeedback,
+    feedback: MechanicalFeedback? = null,
     switchWidth: androidx.compose.ui.unit.Dp = 46.dp,
     switchHeight: androidx.compose.ui.unit.Dp = 24.dp,
     onShuffleToggle: () -> Unit,
@@ -1332,7 +1332,7 @@ private fun SwitchesRow(
                 width = switchWidth,
                 height = switchHeight,
                 onToggle = {
-                    feedback.onTick()
+                    feedback?.onTick()
                     onShuffleToggle()
                 }
             )
@@ -1354,7 +1354,7 @@ private fun SwitchesRow(
                 width = switchWidth,
                 height = switchHeight,
                 onToggle = {
-                    feedback.onTick()
+                    feedback?.onTick()
                     onRepeatToggle()
                 }
             )
@@ -1397,7 +1397,7 @@ private fun DeckScreenLandscapePreview() {
         isSpotifyLoggedIn = true,
         currentPositionMs = 65_000L,
         totalDurationMs = 215_000L,
-        feedback = MechanicalFeedback(LocalContext.current),
+        feedback = null,
         onPlay = {},
         onPause = {},
         onStop = {},
@@ -1448,7 +1448,7 @@ private fun DeckScreenPortraitPreview() {
         isSpotifyLoggedIn = true,
         currentPositionMs = 65_000L,
         totalDurationMs = 215_000L,
-        feedback = MechanicalFeedback(LocalContext.current),
+        feedback = null,
         onPlay = {},
         onPause = {},
         onStop = {},
