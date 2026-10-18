@@ -37,6 +37,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import com.retro.pixelplayer.audio.TapeItem
 import com.retro.pixelplayer.audio.TapeType
@@ -48,6 +50,12 @@ enum class ShelfMode {
     ARTISTS_LIST,   // Choose which Artist
     ARTIST_TAPES,   // Choose between "All" tape or specific Album tapes
     SHOEBOX_TAPES   // Flick through handmade playlist tapes in shoe box
+}
+
+enum class TapeSourceFilter {
+    ALL,
+    LOCAL,
+    SPOTIFY
 }
 
 /**
@@ -65,6 +73,26 @@ fun TapeSelectionScreen(
 ) {
     var mode by remember { mutableStateOf(ShelfMode.OVERVIEW) }
     var selectedArtist by remember { mutableStateOf<String?>(null) }
+    var sourceFilter by rememberSaveable { mutableStateOf(TapeSourceFilter.ALL) }
+
+    // Filtered collections based on user source filter
+    val filteredArtistTapes = remember(artistTapes, sourceFilter) {
+        artistTapes.mapValues { (_, tapes) ->
+            when (sourceFilter) {
+                TapeSourceFilter.ALL -> tapes
+                TapeSourceFilter.LOCAL -> tapes.filter { !it.isSpotify }
+                TapeSourceFilter.SPOTIFY -> tapes.filter { it.isSpotify }
+            }
+        }.filterValues { it.isNotEmpty() }
+    }
+
+    val filteredPlaylistTapes = remember(playlistTapes, sourceFilter) {
+        when (sourceFilter) {
+            TapeSourceFilter.ALL -> playlistTapes
+            TapeSourceFilter.LOCAL -> playlistTapes.filter { !it.isSpotify }
+            TapeSourceFilter.SPOTIFY -> playlistTapes.filter { it.isSpotify }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -124,7 +152,18 @@ fun TapeSelectionScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 3-Way Source Filter Toggle: ALL | LOCAL | SPOTIFY
+        TapeFilterBar(
+            selectedFilter = sourceFilter,
+            onFilterSelected = { filter ->
+                sourceFilter = filter
+            },
+            feedback = feedback
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         when (mode) {
             ShelfMode.OVERVIEW -> {
@@ -174,7 +213,7 @@ fun TapeSelectionScreen(
                                     fontSize = 15.sp
                                 )
                                 Text(
-                                    text = "${artistTapes.keys.size} ARTISTS",
+                                    text = "${filteredArtistTapes.keys.size} ARTISTS",
                                     color = Color.White.copy(alpha = 0.7f),
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp
@@ -252,7 +291,7 @@ fun TapeSelectionScreen(
                                     fontSize = 15.sp
                                 )
                                 Text(
-                                    text = "${playlistTapes.size} MIXTAPES",
+                                    text = "${filteredPlaylistTapes.size} MIXTAPES",
                                     color = Color.White.copy(alpha = 0.8f),
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp
@@ -313,76 +352,120 @@ fun TapeSelectionScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(artistTapes.keys.toList()) { artist ->
-                        val tapes = artistTapes[artist] ?: emptyList()
-                        val sampleArt = tapes.firstOrNull { it.artworkBitmap != null }?.artworkBitmap
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF2C243B))
-                                .border(2.dp, PixelPalette.ChassisBorder, RoundedCornerShape(8.dp))
-                                .clickable {
-                                    feedback.onTick()
-                                    selectedArtist = artist
-                                    mode = ShelfMode.ARTIST_TAPES
-                                }
-                                .padding(12.dp)
+                if (filteredArtistTapes.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF231D2D))
+                            .border(2.dp, Color(0xFF382F45), RoundedCornerShape(8.dp))
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                if (sampleArt != null) {
-                                    Image(
-                                        bitmap = sampleArt.asImageBitmap(),
-                                        contentDescription = artist,
-                                        filterQuality = FilterQuality.None,
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .border(1.dp, PixelPalette.ChassisHighlight, RoundedCornerShape(4.dp))
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .background(PixelPalette.TapeSpool, RoundedCornerShape(4.dp)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(text = "🎵", fontSize = 18.sp)
+                            Text(
+                                text = "NO ARTISTS FOUND",
+                                color = Color.White,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = when (sourceFilter) {
+                                    TapeSourceFilter.LOCAL -> "No local artist audio files found on device."
+                                    TapeSourceFilter.SPOTIFY -> if (isSpotifyLoggedIn) "No Spotify artists found in your library." else "Spotify is not linked. Tap SPOTIFY above to log in."
+                                    TapeSourceFilter.ALL -> "No cassette tapes available."
+                                },
+                                color = Color(0xFFAAA0B8),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(filteredArtistTapes.keys.toList()) { artist ->
+                            val tapes = filteredArtistTapes[artist] ?: emptyList()
+                            val sampleArt = tapes.firstOrNull { it.artworkBitmap != null }?.artworkBitmap
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF2C243B))
+                                    .border(2.dp, PixelPalette.ChassisBorder, RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        feedback.onTick()
+                                        selectedArtist = artist
+                                        mode = ShelfMode.ARTIST_TAPES
                                     }
-                                }
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    if (sampleArt != null) {
+                                        Image(
+                                            bitmap = sampleArt.asImageBitmap(),
+                                            contentDescription = artist,
+                                            filterQuality = FilterQuality.None,
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .border(1.dp, PixelPalette.ChassisHighlight, RoundedCornerShape(4.dp))
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .background(PixelPalette.TapeSpool, RoundedCornerShape(4.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(text = "🎵", fontSize = 18.sp)
+                                        }
+                                    }
 
-                                Column(modifier = Modifier.weight(1f)) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = artist.uppercase(),
+                                            color = Color.White,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 13.sp
+                                        )
+                                        val localCount = tapes.count { !it.isSpotify }
+                                        val spotifyCount = tapes.count { it.isSpotify }
+                                        val subtitleText = when {
+                                            localCount > 0 && spotifyCount > 0 -> "$localCount Local • $spotifyCount Spotify"
+                                            spotifyCount > 0 -> "$spotifyCount Spotify Album${if (spotifyCount > 1) "s" else ""}"
+                                            else -> "$localCount Local Tape${if (localCount > 1) "s" else ""}"
+                                        }
+                                        Text(
+                                            text = subtitleText,
+                                            color = PixelPalette.ChassisHighlight,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+
                                     Text(
-                                        text = artist.uppercase(),
-                                        color = Color.White,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 13.sp
-                                    )
-                                    Text(
-                                        text = "${tapes.size} Available Tapes (All & Albums)",
-                                        color = PixelPalette.ChassisHighlight,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 10.sp
+                                        text = "▶",
+                                        color = PixelPalette.PlayGreen,
+                                        fontSize = 14.sp
                                     )
                                 }
-
-                                Text(
-                                    text = "▶",
-                                    color = PixelPalette.PlayGreen,
-                                    fontSize = 14.sp
-                                )
                             }
                         }
                     }
@@ -391,7 +474,7 @@ fun TapeSelectionScreen(
 
             ShelfMode.ARTIST_TAPES -> {
                 // Flick through the artist's tapes (ALL tape + Album tapes)
-                val tapes = artistTapes[selectedArtist] ?: emptyList()
+                val tapes = filteredArtistTapes[selectedArtist] ?: emptyList()
 
                 Text(
                     text = "FLICK THROUGH ${selectedArtist?.uppercase()}'S TAPES:",
@@ -401,21 +484,54 @@ fun TapeSelectionScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(tapes) { tape ->
-                        TapeSpineItem(
-                            tape = tape,
-                            feedback = feedback,
-                            onSelect = {
-                                feedback.onTapeLatch()
-                                onTapeSelected(tape)
-                            }
-                        )
+                if (tapes.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF231D2D))
+                            .border(2.dp, Color(0xFF382F45), RoundedCornerShape(8.dp))
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "NO TAPES MATCHING FILTER",
+                                color = Color.White,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "This artist has no ${sourceFilter.name.lowercase()} tapes. Try switching to ALL.",
+                                color = Color(0xFFAAA0B8),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(tapes) { tape ->
+                            TapeSpineItem(
+                                tape = tape,
+                                feedback = feedback,
+                                onSelect = {
+                                    feedback.onTapeLatch()
+                                    onTapeSelected(tape)
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -430,21 +546,58 @@ fun TapeSelectionScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(playlistTapes) { tape ->
-                        TapeSpineItem(
-                            tape = tape,
-                            feedback = feedback,
-                            onSelect = {
-                                feedback.onTapeLatch()
-                                onTapeSelected(tape)
-                            }
-                        )
+                if (filteredPlaylistTapes.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF231D2D))
+                            .border(2.dp, Color(0xFF382F45), RoundedCornerShape(8.dp))
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "NO PLAYLISTS FOUND",
+                                color = Color.White,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = when (sourceFilter) {
+                                    TapeSourceFilter.LOCAL -> "No local playlist tapes found on device."
+                                    TapeSourceFilter.SPOTIFY -> if (isSpotifyLoggedIn) "No Spotify playlists found in library." else "Spotify is not linked. Tap SPOTIFY above to log in."
+                                    TapeSourceFilter.ALL -> "No playlists found in shoe box."
+                                },
+                                color = Color(0xFFAAA0B8),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(filteredPlaylistTapes) { tape ->
+                            TapeSpineItem(
+                                tape = tape,
+                                feedback = feedback,
+                                onSelect = {
+                                    feedback.onTapeLatch()
+                                    onTapeSelected(tape)
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -515,16 +668,44 @@ fun TapeSpineItem(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.Center
             ) {
-                // Tape Title
-                Text(
-                    text = tape.title.uppercase(),
-                    color = Color.White,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Tape Title
+                    Text(
+                        text = tape.title.uppercase(),
+                        color = Color.White,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+
+                    // Source Badge: 🟢 SPOTIFY or 💾 LOCAL
+                    val badgeText = if (tape.isSpotify) "SPOTIFY" else "LOCAL"
+                    val badgeColor = if (tape.isSpotify) Color(0xFF81C784) else Color(0xFF64B5F6)
+                    val badgeBorder = if (tape.isSpotify) Color(0xFF2E7D32) else Color(0xFF1976D2)
+                    val badgeBg = if (tape.isSpotify) Color(0xFF142E18) else Color(0xFF10283F)
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(badgeBg)
+                            .border(1.dp, badgeBorder, RoundedCornerShape(3.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeColor,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.sp
+                        )
+                    }
+                }
 
                 // Subtitle
                 Text(
@@ -552,6 +733,83 @@ fun TapeSpineItem(
                     fontWeight = FontWeight.Bold,
                     fontSize = 10.sp
                 )
+            }
+        }
+    }
+}
+
+/**
+ * 3-Way Retro segmented filter toggle: ALL | 💾 LOCAL | 🟢 SPOTIFY
+ */
+@Composable
+fun TapeFilterBar(
+    selectedFilter: TapeSourceFilter,
+    onFilterSelected: (TapeSourceFilter) -> Unit,
+    feedback: MechanicalFeedback
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFF1E1A29))
+            .border(2.dp, Color(0xFF2E273D), RoundedCornerShape(6.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TapeSourceFilter.values().forEach { filter ->
+            val isSelected = filter == selectedFilter
+
+            val (activeBg, activeBorder, activeText) = when (filter) {
+                TapeSourceFilter.ALL -> Triple(Color(0xFF453D28), Color(0xFFFFB300), Color(0xFFFFD54F))
+                TapeSourceFilter.LOCAL -> Triple(Color(0xFF152F47), Color(0xFF29B6F6), Color(0xFF81D4FA))
+                TapeSourceFilter.SPOTIFY -> Triple(Color(0xFF17381C), Color(0xFF4CAF50), Color(0xFFA5D6A7))
+            }
+
+            val bg = if (isSelected) activeBg else Color(0xFF252033)
+            val borderColor = if (isSelected) activeBorder else Color(0xFF383049)
+            val textColor = if (isSelected) activeText else Color(0xFF8D859B)
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(bg)
+                    .border(if (isSelected) 1.5.dp else 1.dp, borderColor, RoundedCornerShape(4.dp))
+                    .clickable {
+                        if (!isSelected) {
+                            feedback.onTick()
+                            onFilterSelected(filter)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (isSelected) {
+                        Text(
+                            text = "▶",
+                            color = textColor,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = when (filter) {
+                            TapeSourceFilter.ALL -> "ALL TAPES"
+                            TapeSourceFilter.LOCAL -> "💾 LOCAL"
+                            TapeSourceFilter.SPOTIFY -> "🟢 SPOTIFY"
+                        },
+                        color = textColor,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
+                        fontSize = 11.sp,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
