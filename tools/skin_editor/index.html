@@ -133,17 +133,21 @@
     opacity: 0.9;
   }
 
-  /* Sub Toolbar for Alignment & Spacing */
+  /* Sub Toolbar for Alignment, Spacing & Sizing */
   .sub-toolbar {
-    height: 40px;
+    min-height: 40px;
+    height: auto;
     background: var(--panel-header);
     border-bottom: 1px solid var(--panel-border);
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 16px;
+    justify-content: flex-start;
+    gap: 16px;
+    padding: 6px 16px;
     font-size: 12px;
     z-index: 90;
+    overflow-x: auto;
   }
 
   .tools-section {
@@ -749,6 +753,24 @@
       ↕ Set Vert Spacing
     </button>
   </div>
+
+  <div class="tools-section">
+    <span class="section-label">Group Size:</span>
+    <span style="font-size: 11px; color: var(--text-muted);">W</span>
+    <input type="number" id="group-size-w" class="number-input-field" value="48" min="10" max="600" title="Width in pixels for all selected elements">
+    <span style="font-size: 11px; color: var(--text-muted);">H</span>
+    <input type="number" id="group-size-h" class="number-input-field" value="48" min="10" max="600" title="Height in pixels for all selected elements">
+    <span style="font-size: 11px; color: var(--text-muted); margin-right: 4px;">px</span>
+    <button class="cyan-btn" onclick="setGroupSize('both')" title="Set both Width and Height on all selected elements">
+      📐 Set Size
+    </button>
+    <div class="btn-group">
+      <button onclick="setGroupSize('w')" title="Set Width only on all selected elements">Set W</button>
+      <button onclick="setGroupSize('h')" title="Set Height only on all selected elements">Set H</button>
+      <button onclick="matchGroupDimension('w')" title="Match Width of first selected item">Match W</button>
+      <button onclick="matchGroupDimension('h')" title="Match Height of first selected item">Match H</button>
+    </div>
+  </div>
 </div>
 
 <!-- Main Workspace -->
@@ -800,11 +822,41 @@
       • Use arrow keys (Shift for 10px) to nudge everything together.
     </div>
 
-    <div id="multi-selection-msg" style="display: none; background: #152433; border: 1px solid #1f4660; border-radius: 6px; padding: 10px; color: var(--cyan); font-size: 12px;">
-      <div style="font-weight: 700; margin-bottom: 4px;">👥 Multi-Selection Active</div>
-      <div id="multi-count-text">3 items selected</div>
-      <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
-        Use the <b>Align</b>, <b>Center</b>, and <b>Spacing</b> buttons above, or drag and nudge them together.
+    <div id="multi-selection-msg" style="display: none; background: #152433; border: 1px solid #1f4660; border-radius: 6px; padding: 12px; color: var(--cyan); font-size: 12px;">
+      <div style="font-weight: 700; margin-bottom: 4px; font-size: 13px;">👥 Multi-Selection Active</div>
+      <div id="multi-count-text" style="color: #fff; font-weight: bold; margin-bottom: 10px;">3 items selected</div>
+      
+      <div style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 10px; margin-top: 6px;">
+        <div class="prop-label" style="margin-bottom: 6px; color: var(--accent);">Batch Size (All Selected)</div>
+        <div class="prop-row" style="margin-bottom: 8px;">
+          <div class="prop-field">
+            <span>W</span>
+            <input type="number" id="batch-prop-w" value="48" onchange="setGroupSize('w', this.value)">
+          </div>
+          <div class="prop-field">
+            <span>H</span>
+            <input type="number" id="batch-prop-h" value="48" onchange="setGroupSize('h', this.value)">
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px; margin-bottom: 12px;">
+          <button style="flex: 1; justify-content: center; background: var(--accent); color: #000; font-weight: bold;" onclick="setGroupSize('both')">
+            📐 Apply Size
+          </button>
+        </div>
+        
+        <div class="prop-label" style="margin-bottom: 6px;">Match Dimensions</div>
+        <div style="display: flex; gap: 6px; margin-bottom: 12px;">
+          <button style="flex: 1; justify-content: center;" onclick="matchGroupDimension('w')" title="Make all selected match first element's width">Match First W</button>
+          <button style="flex: 1; justify-content: center;" onclick="matchGroupDimension('h')" title="Make all selected match first element's height">Match First H</button>
+        </div>
+
+        <div class="prop-label" style="margin-bottom: 6px;">Quick Presets</div>
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <button style="justify-content: center;" onclick="applySizePreset(48, 48)">Square Buttons (48 × 48 px)</button>
+          <button style="justify-content: center;" onclick="applySizePreset(64, 32)">Switches (64 × 32 px)</button>
+          <button style="justify-content: center;" onclick="applySizePreset(360, 180)">LCD Frame (360 × 180 px)</button>
+          <button style="justify-content: center;" onclick="applySizePreset(360, 220)">Door Frame (360 × 220 px)</button>
+        </div>
       </div>
     </div>
 
@@ -1608,6 +1660,99 @@ function distributeSelected(direction) {
   renderElements();
 }
 
+// --- Batch / Group Dimension Engines ---
+function setGroupSize(dim, explicitVal) {
+  const sel = getSelectedElements();
+  if (sel.length === 0) {
+    alert('Select 1 or more elements to resize them!');
+    return;
+  }
+
+  const bw = document.getElementById('batch-prop-w');
+  const bh = document.getElementById('batch-prop-h');
+  const gw = document.getElementById('group-size-w');
+  const gh = document.getElementById('group-size-h');
+
+  let w = explicitVal !== undefined ? parseInt(explicitVal) : (bw ? parseInt(bw.value) : 0) || (gw ? parseInt(gw.value) : 48) || 48;
+  let h = explicitVal !== undefined ? parseInt(explicitVal) : (bh ? parseInt(bh.value) : 0) || (gh ? parseInt(gh.value) : 48) || 48;
+
+  if (dim === 'w' || dim === 'both') {
+    w = (dim === 'w' && explicitVal !== undefined) ? (parseInt(explicitVal) || 48) : ((bw ? parseInt(bw.value) : 0) || (gw ? parseInt(gw.value) : 48) || 48);
+  }
+  if (dim === 'h' || dim === 'both') {
+    h = (dim === 'h' && explicitVal !== undefined) ? (parseInt(explicitVal) || 48) : ((bh ? parseInt(bh.value) : 0) || (gh ? parseInt(gh.value) : 48) || 48);
+  }
+
+  sel.forEach(el => {
+    if (dim === 'w' || dim === 'both') el.w = Math.max(10, w);
+    if (dim === 'h' || dim === 'both') el.h = Math.max(10, h);
+  });
+
+  // Sync input fields
+  if (dim === 'w' || dim === 'both') {
+    if (bw) bw.value = w;
+    if (gw) gw.value = w;
+  }
+  if (dim === 'h' || dim === 'both') {
+    if (bh) bh.value = h;
+    if (gh) gh.value = h;
+  }
+
+  autoSave();
+  renderElements();
+}
+
+function matchGroupDimension(dim) {
+  const sel = getSelectedElements();
+  if (sel.length < 2) {
+    alert('Select 2 or more elements to match dimensions! (Hold Shift or drag to select)');
+    return;
+  }
+
+  const ref = sel[0];
+  sel.forEach(el => {
+    if (dim === 'w' || dim === 'both') el.w = ref.w;
+    if (dim === 'h' || dim === 'both') el.h = ref.h;
+  });
+
+  const bw = document.getElementById('batch-prop-w');
+  const bh = document.getElementById('batch-prop-h');
+  const gw = document.getElementById('group-size-w');
+  const gh = document.getElementById('group-size-h');
+  if (bw) bw.value = ref.w;
+  if (gw) gw.value = ref.w;
+  if (bh) bh.value = ref.h;
+  if (gh) gh.value = ref.h;
+
+  autoSave();
+  renderElements();
+}
+
+function applySizePreset(w, h) {
+  const sel = getSelectedElements();
+  if (sel.length === 0) {
+    alert('Select 1 or more elements to apply preset size!');
+    return;
+  }
+
+  sel.forEach(el => {
+    el.w = w;
+    el.h = h;
+  });
+
+  const bw = document.getElementById('batch-prop-w');
+  const bh = document.getElementById('batch-prop-h');
+  const gw = document.getElementById('group-size-w');
+  const gh = document.getElementById('group-size-h');
+  if (bw) bw.value = w;
+  if (gw) gw.value = w;
+  if (bh) bh.value = h;
+  if (gh) gh.value = h;
+
+  autoSave();
+  renderElements();
+}
+
 // --- Nudge & Keyboard ---
 function nudge(dx, dy) {
   const sel = getSelectedElements();
@@ -1705,6 +1850,19 @@ function updateInspector() {
     multiMsg.style.display = 'block';
     singleInsp.style.display = 'none';
     document.getElementById('multi-count-text').textContent = `${selectedElementIds.size} elements selected`;
+
+    const firstId = Array.from(selectedElementIds)[0];
+    const firstEl = elements[currentOrientation].find(item => item.id === firstId);
+    if (firstEl) {
+      const bw = document.getElementById('batch-prop-w');
+      const bh = document.getElementById('batch-prop-h');
+      const gw = document.getElementById('group-size-w');
+      const gh = document.getElementById('group-size-h');
+      if (bw) bw.value = firstEl.w;
+      if (bh) bh.value = firstEl.h;
+      if (gw) gw.value = firstEl.w;
+      if (gh) gh.value = firstEl.h;
+    }
   } else {
     noSel.style.display = 'none';
     multiMsg.style.display = 'none';
