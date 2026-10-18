@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -72,6 +73,7 @@ import com.retro.pixelplayer.audio.TapeType
 import com.retro.pixelplayer.audio.Track
 import com.retro.pixelplayer.feedback.MechanicalFeedback
 import com.retro.pixelplayer.spotify.SpotifyManager
+import com.retro.pixelplayer.spotify.SpotifyRemoteManager
 import com.retro.pixelplayer.ui.components.CassetteDeck
 import com.retro.pixelplayer.ui.components.LcdDisplay
 import com.retro.pixelplayer.ui.components.MechanicalButton
@@ -270,6 +272,19 @@ fun RetroAppRoot(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
+    val spotifyPlayerState by SpotifyRemoteManager.playerState.collectAsState()
+    val isSpotifyRemoteConnected by SpotifyRemoteManager.isConnected.collectAsState()
+
+    // Eagerly connect to Spotify App Remote if Spotify is logged in and installed
+    DisposableEffect(isSpotifyLoggedIn) {
+        if (isSpotifyLoggedIn && SpotifyRemoteManager.isInstalled(context)) {
+            SpotifyRemoteManager.connect(context, showAuthView = false)
+        }
+        onDispose {
+            SpotifyRemoteManager.disconnect()
+        }
+    }
+
     val activeTracks = currentTape?.tracks ?: emptyList()
     val activeTrack: Track? = if (activeTracks.isNotEmpty()) {
         activeTracks[activeTrackIndex % activeTracks.size]
@@ -277,55 +292,59 @@ fun RetroAppRoot(
         null
     }
 
+    // React to authoritative playback updates from the Spotify App Remote SDK
+    LaunchedEffect(spotifyPlayerState) {
+        val state = spotifyPlayerState ?: return@LaunchedEffect
+        if (isSpotifyRemotePlaying) {
+            isPlaying = !state.isPaused
+            isPaused = state.isPaused
+            currentPositionMs = state.playbackPosition
+            val dur = state.track?.duration ?: 0L
+            if (dur > 0L) {
+                totalDurationMs = dur
+            }
+
+            // Sync active cassette track if Spotify auto-advanced to next track
+            val stateUri = state.track?.uri
+            if (!stateUri.isNullOrBlank() && activeTracks.isNotEmpty()) {
+                val matchIdx = activeTracks.indexOfFirst { it.spotifyUri == stateUri }
+                if (matchIdx >= 0 && matchIdx != activeTrackIndex) {
+                    activeTrackIndex = matchIdx
+                }
+            }
+        }
+    }
+
     fun playTrack(track: Track?) {
         if (track == null || !isTapeInserted) return
         val scheme = track.contentUri.scheme ?: ""
+        val isSpotifyTrack = (scheme == "spotify") || (track.spotifyUri != null) || (currentTape?.isSpotify == true)
 
-        // Pre-resolve the next track on the cassette in the background for instant skipping
-        if (activeTracks.size > 1) {
-            val nextIdx = (activeTrackIndex + 1) % activeTracks.size
-            val nextTrack = activeTracks[nextIdx]
-            coroutineScope.launch {
-                SpotifyManager.resolveTrackStreamUri(nextTrack)
+        if (isSpotifyTrack) {
+            // Play official authentic track directly through Spotify App Remote!
+            exoPlayer.stop()
+            isSpotifyRemotePlaying = true
+            isPlaying = true
+            isPaused = false
+            currentPositionMs = 0L
+            totalDurationMs = track.durationMs.coerceAtLeast(30_000L)
+
+            val uriToPlay = track.spotifyUri
+                ?: if (scheme == "spotify") track.contentUri.toString()
+                else "spotify:track:${track.id}"
+
+            SpotifyRemoteManager.play(context, uriToPlay)
+        } else {
+            // Local device audio track
+            if (isSpotifyRemotePlaying) {
+                SpotifyRemoteManager.pause()
             }
-        }
-
-        if (scheme == "content" || scheme == "file") {
             isSpotifyRemotePlaying = false
             val mediaItem = MediaItem.fromUri(track.contentUri)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
             exoPlayer.play()
             isPaused = false
-        } else {
-            // Resolve full-length audio stream URL for Spotify track so ExoPlayer plays the full song!
-            exoPlayer.stop()
-            isPlaying = true
-            isPaused = false
-            currentPositionMs = 0L
-            totalDurationMs = track.durationMs.coerceAtLeast(180000L)
-            coroutineScope.launch {
-                val streamUri = SpotifyManager.resolveTrackStreamUri(track)
-                if (streamUri != null) {
-                    isSpotifyRemotePlaying = false
-                    val uriStr = streamUri.toString()
-                    val mediaItem = if (uriStr.contains(".m3u8")) {
-                        MediaItem.Builder()
-                            .setUri(streamUri)
-                            .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
-                            .build()
-                    } else {
-                        MediaItem.fromUri(streamUri)
-                    }
-                    exoPlayer.setMediaItem(mediaItem)
-                    exoPlayer.prepare()
-                    exoPlayer.play()
-                } else if (track.spotifyUri != null) {
-                    // Fallback to Spotify Connect remote if no stream found
-                    isSpotifyRemotePlaying = true
-                    SpotifyManager.playSpotifyTrack(context, track.spotifyUri)
-                }
-            }
         }
     }
 
@@ -396,13 +415,13 @@ fun RetroAppRoot(
         }
     }
 
-    // Timer updater coroutine for LCD display (smooth 250ms updates for responsive Fast-Forward/Rewind)
-    LaunchedEffect(isPlaying, isSpotifyRemotePlaying) {
-        while (isPlaying) {
-            if (isSpotifyRemotePlaying && !exoPlayer.isPlaying) {
-                delay(1000)
+    // Timer updater coroutine for LCD display (smooth 250ms updates for responsive Fast-Forward/Rewind & reel rotation)
+    LaunchedEffect(isPlaying, isPaused, isSpotifyRemotePlaying) {
+        while (isPlaying && !isPaused) {
+            if (isSpotifyRemotePlaying) {
+                delay(250)
                 if (isPlaying && !isPaused) {
-                    currentPositionMs = (currentPositionMs + 1000L).coerceAtMost(totalDurationMs)
+                    currentPositionMs = (currentPositionMs + 250L).coerceAtMost(totalDurationMs)
                 }
             } else {
                 currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -503,9 +522,7 @@ fun RetroAppRoot(
                                 if (isSpotifyRemotePlaying) {
                                     isPlaying = true
                                     isPaused = false
-                                    activeTrack?.spotifyUri?.let { uri ->
-                                        coroutineScope.launch { SpotifyManager.playSpotifyTrack(context, uri) }
-                                    }
+                                    SpotifyRemoteManager.resume()
                                 } else {
                                     exoPlayer.play()
                                     isPaused = false
@@ -520,7 +537,7 @@ fun RetroAppRoot(
                             if (isSpotifyRemotePlaying) {
                                 isPlaying = false
                                 isPaused = true
-                                coroutineScope.launch { SpotifyManager.pauseSpotify(context) }
+                                SpotifyRemoteManager.pause()
                             } else {
                                 exoPlayer.pause()
                                 isPaused = true
@@ -529,7 +546,7 @@ fun RetroAppRoot(
                     },
                     onStop = {
                         if (isSpotifyRemotePlaying) {
-                            coroutineScope.launch { SpotifyManager.pauseSpotify(context) }
+                            SpotifyRemoteManager.pause()
                         }
                         isSpotifyRemotePlaying = false
                         isPlaying = false
@@ -559,7 +576,7 @@ fun RetroAppRoot(
                     onEject = {
                         feedback.onTapeLatch()
                         if (isSpotifyRemotePlaying) {
-                            coroutineScope.launch { SpotifyManager.pauseSpotify(context) }
+                            SpotifyRemoteManager.pause()
                         }
                         isSpotifyRemotePlaying = false
                         isPlaying = false
@@ -574,7 +591,7 @@ fun RetroAppRoot(
                         feedback.onTapeLatch()
                         if (isTapeInserted) {
                             if (isSpotifyRemotePlaying) {
-                                coroutineScope.launch { SpotifyManager.pauseSpotify(context) }
+                                SpotifyRemoteManager.pause()
                             }
                             isSpotifyRemotePlaying = false
                             isPlaying = false
@@ -590,24 +607,27 @@ fun RetroAppRoot(
                     },
                     onShuffleToggle = { enabled ->
                         exoPlayer.shuffleModeEnabled = enabled
-                        if (currentTape?.isSpotify == true) {
-                            coroutineScope.launch { SpotifyManager.setSpotifyShuffle(context, enabled) }
+                        if (isSpotifyRemotePlaying) {
+                            SpotifyRemoteManager.setShuffle(enabled)
                         }
                     },
                     onRepeatToggle = { enabled ->
                         exoPlayer.repeatMode = if (enabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_ALL
-                        if (currentTape?.isSpotify == true) {
-                            coroutineScope.launch { SpotifyManager.setSpotifyRepeat(context, enabled) }
+                        if (isSpotifyRemotePlaying) {
+                            SpotifyRemoteManager.setRepeat(enabled)
                         }
                     },
                     onSeek = { deltaMs ->
-                        val dur = if (exoPlayer.duration > 0) exoPlayer.duration else totalDurationMs.coerceAtLeast(30_000L)
-                        val cur = if (isSpotifyRemotePlaying && !exoPlayer.isPlaying) currentPositionMs else exoPlayer.currentPosition
-                        val targetMs = (cur + deltaMs).coerceIn(0L, dur)
-                        exoPlayer.seekTo(targetMs)
-                        currentPositionMs = targetMs
                         if (isSpotifyRemotePlaying) {
-                            coroutineScope.launch { SpotifyManager.seekSpotify(context, targetMs) }
+                            val dur = totalDurationMs.coerceAtLeast(30_000L)
+                            val targetMs = (currentPositionMs + deltaMs).coerceIn(0L, dur)
+                            currentPositionMs = targetMs
+                            SpotifyRemoteManager.seekTo(targetMs)
+                        } else {
+                            val dur = if (exoPlayer.duration > 0) exoPlayer.duration else totalDurationMs.coerceAtLeast(30_000L)
+                            val targetMs = (exoPlayer.currentPosition + deltaMs).coerceIn(0L, dur)
+                            exoPlayer.seekTo(targetMs)
+                            currentPositionMs = targetMs
                         }
                     }
                 )
@@ -696,83 +716,84 @@ fun DeckScreen(
     val tapeLabelColor = currentTape?.let { Color(it.labelColorHex) } ?: PixelPalette.TapeLabelPink
     val tapeShellColor = if (currentTape?.isHomeMade == true) Color(0xFFF5F5DC) else Color(0xFFDC7828)
 
-    Surface(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing),
-        color = PixelPalette.RoomDark
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
-        if (isLandscape) {
-            // HORIZONTAL (Landscape) Layout - Proportional coordinate match to master 1024x460 design
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = 6.dp, end = 12.dp, top = 4.dp, bottom = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Header Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "◆ SUNSET PIXELS ◆",
-                        color = PixelPalette.ChassisHighlight,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 12.sp
-                    )
+        // FULL-RESOLUTION BACKGROUND: Always scales to fit the entire physical phone screen
+        Image(
+            painter = painterResource(id = R.drawable.chassis_texture_bg),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds
+        )
 
+        // FOREGROUND CONTENT LAYER: windowInsetsPadding avoids Android navigation buttons / camera cutouts
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+        ) {
+            if (isLandscape) {
+                // HORIZONTAL (Landscape) Layout - Proportional coordinate match to master 1024x460 design
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Header Bar
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        MechanicalButton(
-                            label = if (isSpotifyLoggedIn) "🟢 LINKED" else "🟢 SPOTIFY",
-                            baseColor = if (isSpotifyLoggedIn) Color(0xFF1DB954) else Color(0xFF1B5E20),
-                            highlightColor = if (isSpotifyLoggedIn) Color(0xFF4ADE80) else Color(0xFF2E7D32),
-                            shadowColor = Color(0xFF0A2910),
-                            labelColor = if (isSpotifyLoggedIn) Color(0xFF0A140E) else Color(0xFFE0E0E0),
-                            width = 88.dp,
-                            height = 25.dp,
-                            onDownPress = { feedback.onTick() },
-                            onClick = { onSpotifyClicked() }
+                        Text(
+                            text = "◆ SUNSET PIXELS ◆",
+                            color = PixelPalette.ChassisHighlight,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 12.sp
                         )
 
-                        MechanicalButton(
-                            label = "TAPES 📚",
-                            baseColor = Color(0xFF4E342E),
-                            highlightColor = Color(0xFF6D4C41),
-                            shadowColor = Color(0xFF3E2723),
-                            width = 82.dp,
-                            height = 25.dp,
-                            onDownPress = { feedback.onTick() },
-                            onClick = { onBrowseTapesClicked() }
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            MechanicalButton(
+                                label = if (isSpotifyLoggedIn) "🟢 LINKED" else "🟢 SPOTIFY",
+                                baseColor = if (isSpotifyLoggedIn) Color(0xFF1DB954) else Color(0xFF1B5E20),
+                                highlightColor = if (isSpotifyLoggedIn) Color(0xFF4ADE80) else Color(0xFF2E7D32),
+                                shadowColor = Color(0xFF0A2910),
+                                labelColor = if (isSpotifyLoggedIn) Color(0xFF0A140E) else Color(0xFFE0E0E0),
+                                width = 88.dp,
+                                height = 25.dp,
+                                onDownPress = { feedback.onTick() },
+                                onClick = { onSpotifyClicked() }
+                            )
+
+                            MechanicalButton(
+                                label = "TAPES 📚",
+                                baseColor = Color(0xFF4E342E),
+                                highlightColor = Color(0xFF6D4C41),
+                                shadowColor = Color(0xFF3E2723),
+                                width = 82.dp,
+                                height = 25.dp,
+                                onDownPress = { feedback.onTick() },
+                                onClick = { onBrowseTapesClicked() }
+                            )
+                        }
                     }
-                }
 
-                // Main Chassis Body mapped to master 1024x404 interior coordinate grid
-                BoxWithConstraints(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(PixelPalette.ChassisBody)
-                        .border(5.dp, PixelPalette.ChassisBorder, RoundedCornerShape(16.dp))
-                ) {
-                    val cw = maxWidth
-                    val ch = maxHeight
-
-                    Image(
-                        painter = painterResource(id = R.drawable.chassis_texture_bg),
-                        contentDescription = null,
-                        modifier = Modifier.matchParentSize(),
-                        contentScale = ContentScale.FillBounds
-                    )
+                    // Main Chassis Deck & Controls mapped to master 1024x404 interior coordinate grid
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
+                        val cw = maxWidth
+                        val ch = maxHeight
 
                     // 1. Cassette Door (Master: x=34, y=87, w=496, h=284; shunted slightly left to x=18)
                     val deckW = minOf(cw * (496f / 1024f), ch * (284f / 404f) * (1024f / 593f))
@@ -1062,6 +1083,7 @@ fun DeckScreen(
             }
         }
     }
+}
 }
 
 @Composable

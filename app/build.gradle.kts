@@ -57,5 +57,9 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
 
+    // Spotify App Remote SDK & JSON parser
+    implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
+    implementation("com.google.code.gson:gson:2.10.1")
+
     debugImplementation(libs.androidx.ui.tooling)
 }
