@@ -850,7 +850,7 @@ fun DeckScreen(
                     // 3. Mint-Green LCD Display (Master: x=565, y=76, w=392, h=163; shunted left to x=547)
                     val lcdW = minOf(cw * (392f / 1024f), ch * (163f / 404f) * (392f / 163f))
                     val lcdX = cw * (547f / 1024f)
-                    val lcdY = ch * (19f / 404f)
+                    val lcdY = ch * (30f / 404f)
 
                     LcdDisplay(
                         modifier = Modifier
@@ -1363,10 +1363,9 @@ private fun SwitchesRow(
 }
 
 @Preview(
-    name = "Walkman Deck - Landscape",
-    widthDp = 1024,
-    heightDp = 460,
-    showBackground = true
+    name = "Pixel 8 - Landscape",
+    device = "spec:parent=pixel_8,orientation=landscape",
+    showSystemUi = true
 )
 @Composable
 private fun DeckScreenLandscapePreview() {
@@ -1414,10 +1413,9 @@ private fun DeckScreenLandscapePreview() {
 }
 
 @Preview(
-    name = "Walkman Deck - Portrait",
-    widthDp = 412,
-    heightDp = 915,
-    showBackground = true
+    name = "Pixel 8 - Portrait",
+    device = "id:pixel_8",
+    showSystemUi = true
 )
 @Composable
 private fun DeckScreenPortraitPreview() {
