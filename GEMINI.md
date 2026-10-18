@@ -95,3 +95,8 @@ This document captures the architectural nuances, non-obvious workarounds, and v
 5. **Full-Resolution Background Scaling**:
    - The orange chassis texture (`chassis_texture_bg`) must **always** scale to fit the 100% full resolution of the device screen (`Modifier.fillMaxSize()`, `ContentScale.FillBounds`) without any outer padding, black room letterboxing, or nested clipping.
    - Safe drawing insets (`Modifier.windowInsetsPadding(WindowInsets.safeDrawing)`) are applied **strictly to the foreground content layer** (buttons, header bar, deck door, LCD display) so that buttons never collide with Android system navigation bars (`▢`, `○`, `◁`) or camera notches, while the chassis texture extends edge-to-edge behind the navigation bar.
+
+### F. Android Auto / Automotive Head-Unit Support
+- Declared in `AndroidManifest.xml` via `<meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc" />` and `androidx.car.app.minCarApiLevel`.
+- `PlaybackService.kt` extends `androidx.media3.session.MediaLibraryService` with intent filters for `androidx.media3.session.MediaLibraryService` and `android.media.browse.MediaBrowserService`.
+- Media hierarchy exposes `root` -> `Artist Shelf 📚` and `Shoe Box (Playlists) 📦` -> individual cassette albums/playlists -> playable tracks. Selecting a track on the car touchscreen triggers headless background playback for both local and Spotify cassettes.
