@@ -54,7 +54,7 @@ object SpotifyManager {
     private const val SCOPES =
         "user-read-private playlist-read-private playlist-read-collaborative " +
         "user-library-read user-top-read user-read-playback-state " +
-        "user-modify-playback-state user-read-currently-playing streaming app-remote-control"
+        "user-modify-playback-state user-read-currently-playing streaming"
 
     private val spinePalette = listOf(
         0xFF1DB954, 0xFF1A237E, 0xFF004D40, 0xFF4A148C, 0xFFB71C1C, 0xFF880E4F, 0xFF311B92, 0xFF0D47A1

@@ -377,12 +377,12 @@ fun RetroAppRoot(
                 }
             )
 
-            // Watchdog: If Spotify doesn't respond or connect within 7 seconds, halt and warn user
+            // Watchdog: If Spotify doesn't respond or connect within 3.5 seconds, halt and warn user
             coroutineScope.launch {
-                delay(7000)
+                delay(3500)
                 if (playSessionId == thisSession && isSpotifyRemotePlaying && isPlaying && !isPaused) {
                     val state = SpotifyRemoteManager.playerState.value
-                    if (state == null && !SpotifyRemoteManager.isConnected.value) {
+                    if (state == null || state.isPaused) {
                         triggerTapePlaybackError("SPOTIFY NOT RUNNING")
                     }
                 }
