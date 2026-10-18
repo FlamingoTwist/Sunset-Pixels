@@ -730,8 +730,11 @@ fun DeckScreen(
         modifier = Modifier.fillMaxSize()
     ) {
         // FULL-RESOLUTION BACKGROUND: Always scales to fit the entire physical phone screen
+        // In Landscape, use chassis_texture_bg (1024x460); in Portrait, use chassis_texture_portrait (460x1024)
+        // so the aspect ratio matches the device screen and the texture is never stretched or blurry.
+        val bgResId = if (isLandscape) R.drawable.chassis_texture_bg else R.drawable.chassis_texture_portrait
         Image(
-            painter = painterResource(id = R.drawable.chassis_texture_bg),
+            painter = painterResource(id = bgResId),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.FillBounds
@@ -987,7 +990,7 @@ fun DeckScreen(
                         .padding(12.dp)
                 ) {
                     Image(
-                        painter = painterResource(id = R.drawable.chassis_texture_bg),
+                        painter = painterResource(id = R.drawable.chassis_texture_portrait),
                         contentDescription = null,
                         modifier = Modifier.matchParentSize(),
                         contentScale = ContentScale.Crop

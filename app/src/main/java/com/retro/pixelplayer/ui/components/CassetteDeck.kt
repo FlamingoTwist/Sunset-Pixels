@@ -129,13 +129,13 @@ fun CassetteDeck(
             )
 
             // Superimposed Stepped Rotating Spinners (Left & Right)
-            // Left Hub: center = (331, 268), diameter = 110 in 1024x593
-            // Right Hub: center = (686, 268), diameter = 110 in 1024x593
-            val spinnerSize = deckWidth * (110f / 1024f)
+            // Left Hub: true center = (339, 271), diameter = 111 in 1024x593
+            // Right Hub: true center = (681, 271), diameter = 111 in 1024x593
+            val spinnerSize = deckWidth * (111f / 1024f)
 
-            // Left Spinner
-            val leftOffsetX = deckWidth * (331f / 1024f) - (spinnerSize / 2f)
-            val leftOffsetY = deckHeight * (268f / 593f) - (spinnerSize / 2f)
+            // Left Spinner - rotates cleanly around true center with zero oscillation
+            val leftOffsetX = deckWidth * (339f / 1024f) - (spinnerSize / 2f)
+            val leftOffsetY = deckHeight * (271f / 593f) - (spinnerSize / 2f)
 
             Image(
                 painter = painterResource(id = R.drawable.spinner_hub_left),
@@ -148,9 +148,9 @@ fun CassetteDeck(
                 contentScale = ContentScale.Fit
             )
 
-            // Right Spinner
-            val rightOffsetX = deckWidth * (686f / 1024f) - (spinnerSize / 2f)
-            val rightOffsetY = deckHeight * (268f / 593f) - (spinnerSize / 2f)
+            // Right Spinner - rotates cleanly around true center with zero oscillation
+            val rightOffsetX = deckWidth * (681f / 1024f) - (spinnerSize / 2f)
+            val rightOffsetY = deckHeight * (271f / 593f) - (spinnerSize / 2f)
 
             Image(
                 painter = painterResource(id = R.drawable.spinner_hub_right),

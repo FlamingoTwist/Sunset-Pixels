@@ -85,15 +85,17 @@ This document captures the architectural nuances, non-obvious workarounds, and v
 1. **Clean Sliced Sprite Assets**:
    - The Walkman UI uses surgical pixel-art slices in `app/src/main/res/drawable-nodpi/` (`deck_door_empty_clean.png`, `cassette_reel_spokes.png`, `lcd_display_clean.png`, `btn_*_unpressed.png` / `btn_*_pressed.png`, `switch_*_off.png` / `switch_*_on.png`).
    - Do **not** replace `deck_door_empty_clean` or `lcd_display_clean` with baked-in text sprites; all dynamic text and rotating reels are composited in Compose.
-2. **Reel Spoke Rotation (`CassetteDeck.kt`)**:
-   - `cassette_reel_spokes.png` has 6-fold (60°) symmetry and **must** remain a square 1:1 `Box` (`aspectRatio(1f)`) rotating around `TransformOrigin.Center`. Never apply non-uniform scaling to the spoke image or it will wobble elliptically as it spins.
-   - Reel centers sit at `(0.320f, 0.453f)` (left reel) and `(0.680f, 0.453f)` (right reel) of the `1024×593` deck door canvas.
+2. **Reel Spoke Rotation & True Hub Centers (`CassetteDeck.kt`)**:
+   - `spinner_hub_left.png` and `spinner_hub_right.png` are centered at `(55, 55)` in a 111×111 square so they rotate cleanly around `TransformOrigin.Center` without wobble or eccentricity.
+   - The true geometric reel centers in `deck_cassette_base.png` sit at `(339f / 1024f, 271f / 593f)` for the left spool and `(681f / 1024f, 271f / 593f)` for the right spool.
 3. **Nearest-Neighbor Filtering**:
    - Whenever rendering pixel art `ImageBitmap`s (especially `artworkBitmap` on cassettes), always pass `filterQuality = FilterQuality.None` to keep crisp pixel edges.
 4. **Dual Orientation Support**:
    - `MainActivity.kt` has no orientation lock in `AndroidManifest.xml` and branches on `configuration.orientation == Configuration.ORIENTATION_LANDSCAPE` inside `DeckScreen`. Any new HUD element or button added to `DeckScreen` must be wired in **both** the Landscape and Portrait branches.
-5. **Full-Resolution Background Scaling**:
-   - The orange chassis texture (`chassis_texture_bg`) must **always** scale to fit the 100% full resolution of the device screen (`Modifier.fillMaxSize()`, `ContentScale.FillBounds`) without any outer padding, black room letterboxing, or nested clipping.
+5. **Full-Resolution Background Scaling & Aspect Ratio Invariants**:
+   - The orange chassis texture scales to fit the 100% full resolution of the device screen (`Modifier.fillMaxSize()`, `ContentScale.FillBounds`).
+   - In Landscape, the app renders `chassis_texture_bg` (1024×460, aspect ratio ~2.22:1).
+   - In Portrait, the app renders `chassis_texture_portrait` (460×1024, aspect ratio ~1:2.22). This ensures the texture orientation matches the device without stretching or blurring across orientations.
    - Safe drawing insets (`Modifier.windowInsetsPadding(WindowInsets.safeDrawing)`) are applied **strictly to the foreground content layer** (buttons, header bar, deck door, LCD display) so that buttons never collide with Android system navigation bars (`▢`, `○`, `◁`) or camera notches, while the chassis texture extends edge-to-edge behind the navigation bar.
 
 ### F. Android Auto / Automotive Head-Unit Support
