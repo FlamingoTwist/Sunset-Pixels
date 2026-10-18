@@ -287,13 +287,6 @@ fun RetroAppRoot(
         if (track == null || !isTapeInserted) return
         val scheme = track.contentUri.scheme ?: ""
 
-        if (track.spotifyUri != null) {
-            // Send command to Spotify Connect in background
-            coroutineScope.launch {
-                SpotifyManager.playSpotifyTrack(context, track.spotifyUri)
-            }
-        }
-
         if (scheme == "http" || scheme == "https" || scheme == "content" || scheme == "file") {
             isSpotifyRemotePlaying = false
             val mediaItem = MediaItem.fromUri(track.contentUri)
@@ -301,14 +294,27 @@ fun RetroAppRoot(
             exoPlayer.prepare()
             exoPlayer.play()
             isPaused = false
-        } else if (track.spotifyUri != null) {
-            // Pure Spotify Connect track without direct HTTP stream
+        } else {
+            // Resolve direct audio stream URL for Spotify track on the fly so ExoPlayer plays out of device speakers
             exoPlayer.stop()
-            isSpotifyRemotePlaying = true
             isPlaying = true
             isPaused = false
-            currentPositionMs = 0L
-            totalDurationMs = track.durationMs.coerceAtLeast(180000L)
+            coroutineScope.launch {
+                val streamUri = SpotifyManager.resolveTrackStreamUri(track)
+                if (streamUri != null) {
+                    isSpotifyRemotePlaying = false
+                    val mediaItem = MediaItem.fromUri(streamUri)
+                    exoPlayer.setMediaItem(mediaItem)
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                } else if (track.spotifyUri != null) {
+                    // Fallback to Spotify Connect remote if no stream found
+                    isSpotifyRemotePlaying = true
+                    currentPositionMs = 0L
+                    totalDurationMs = track.durationMs.coerceAtLeast(180000L)
+                    SpotifyManager.playSpotifyTrack(context, track.spotifyUri)
+                }
+            }
         }
     }
 

@@ -550,6 +550,12 @@ object SpotifyManager {
     }
 
     private fun fetchPlaylistTracks(playlistId: String, playlistName: String, token: String): List<Track> {
+        // First try Spotify Embed JSON which works even in Dev Mode and includes direct MP3 stream URLs
+        val embedTracks = fetchEmbedTracks("playlist", playlistId, playlistName)
+        if (embedTracks.isNotEmpty()) {
+            return embedTracks
+        }
+
         val result = mutableListOf<Track>()
         try {
             val json = getJson("https://api.spotify.com/v1/playlists/$playlistId/tracks?limit=25", token)
@@ -591,6 +597,131 @@ object SpotifyManager {
         return result
     }
 
+    /**
+     * Fetches the trackList and direct MP3 stream URLs (https://p.scdn.co/mp3-preview/...)
+     * from Spotify's public embed state JSON for a playlist or album.
+     */
+    private fun fetchEmbedTracks(entityType: String, entityId: String, defaultAlbumName: String): List<Track> {
+        val result = mutableListOf<Track>()
+        try {
+            val html = getRawString("https://open.spotify.com/embed/$entityType/$entityId")
+            val markerStart = "<script id=\"__NEXT_DATA__\" type=\"application/json\">"
+            val startIdx = html.indexOf(markerStart)
+            if (startIdx == -1) return emptyList()
+            val jsonStart = startIdx + markerStart.length
+            val endIdx = html.indexOf("</script>", jsonStart)
+            if (endIdx == -1) return emptyList()
+
+            val nextData = JSONObject(html.substring(jsonStart, endIdx))
+            val entity = nextData
+                .optJSONObject("props")
+                ?.optJSONObject("pageProps")
+                ?.optJSONObject("state")
+                ?.optJSONObject("data")
+                ?.optJSONObject("entity")
+                ?: return emptyList()
+
+            val trackList = entity.optJSONArray("trackList") ?: return emptyList()
+            for (i in 0 until trackList.length().coerceAtMost(35)) {
+                val tr = trackList.optJSONObject(i) ?: continue
+                val trUri = tr.optString("uri", "")
+                val trTitle = tr.optString("title", "Track")
+                val artistName = tr.optString("subtitle", "Spotify Artist")
+                    .replace("\u00a0", " ")
+                val trDur = tr.optLong("duration", 180000L)
+                val previewUrl = tr.optJSONObject("audioPreview")?.optString("url", "") ?: ""
+
+                val contentUri = if (previewUrl.startsWith("http")) {
+                    Uri.parse(previewUrl)
+                } else {
+                    Uri.parse(trUri.ifBlank { "spotify:track:$i" })
+                }
+
+                result.add(
+                    Track(
+                        id = trUri.hashCode().toLong(),
+                        title = trTitle,
+                        artist = artistName,
+                        album = defaultAlbumName,
+                        durationMs = trDur,
+                        contentUri = contentUri,
+                        spotifyUri = trUri
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SpotifySync", "Embed fetch failed for $entityType/$entityId: ${e.message}")
+        }
+        return result
+    }
+
+    /**
+     * Resolves a direct playable HTTP audio stream URL for a Spotify track so ExoPlayer
+     * can play audio directly through the device/emulator speakers.
+     */
+    suspend fun resolveTrackStreamUri(track: Track): Uri? = withContext(Dispatchers.IO) {
+        val existingScheme = track.contentUri.scheme ?: ""
+        if (existingScheme == "http" || existingScheme == "https" || existingScheme == "content" || existingScheme == "file") {
+            return@withContext track.contentUri
+        }
+
+        // 1. Try Spotify's track embed endpoint to get the p.scdn.co MP3 stream
+        val spUri = track.spotifyUri ?: track.contentUri.toString()
+        val trackId = spUri.substringAfterLast("spotify:track:", "").trim()
+        if (trackId.isNotEmpty() && !trackId.contains(":")) {
+            try {
+                val html = getRawString("https://open.spotify.com/embed/track/$trackId")
+                val regex = Regex("\"audioPreview\"\\s*:\\s*\\{[^}]*\"url\"\\s*:\\s*\"(https:[^\"]+)\"")
+                val match = regex.find(html)
+                if (match != null) {
+                    val streamUrl = match.groupValues[1].replace("\\/", "/")
+                    android.util.Log.d("SpotifySync", "Resolved Spotify CDN stream for ${track.title}: $streamUrl")
+                    return@withContext Uri.parse(streamUrl)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("SpotifySync", "Track embed stream lookup failed: ${e.message}")
+            }
+        }
+
+        // 2. Fallback: lookup matching track stream via iTunes Search API
+        try {
+            val query = URLEncoder.encode("${track.artist} ${track.title}", "UTF-8")
+            val searchStr = getRawString("https://itunes.apple.com/search?term=$query&entity=song&limit=1")
+            val json = JSONObject(searchStr)
+            val results = json.optJSONArray("results")
+            if (results != null && results.length() > 0) {
+                val previewUrl = results.optJSONObject(0)?.optString("previewUrl", "") ?: ""
+                if (previewUrl.startsWith("http")) {
+                    android.util.Log.d("SpotifySync", "Resolved fallback stream for ${track.title}: $previewUrl")
+                    return@withContext Uri.parse(previewUrl)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SpotifySync", "Fallback stream lookup failed: ${e.message}")
+        }
+
+        null
+    }
+
+    private fun getRawString(urlString: String): String {
+        val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Android 14; Mobile)")
+            connectTimeout = 6000
+            readTimeout = 6000
+        }
+        val code = conn.responseCode
+        val reader = if (code in 200..299) {
+            BufferedReader(InputStreamReader(conn.inputStream))
+        } else {
+            conn.disconnect()
+            throw Exception("HTTP $code")
+        }
+        val text = reader.use { it.readText() }
+        conn.disconnect()
+        return text
+    }
+
     private fun downloadAndPixelateArtwork(imageUrl: String): Bitmap? {
         return try {
             val conn = (URL(imageUrl).openConnection() as HttpURLConnection).apply {
@@ -612,14 +743,17 @@ object SpotifyManager {
     // =========================================================================
 
     /**
-     * Triggers playback of a Spotify track via Spotify Connect Web API.
-     * Returns true if Spotify Connect accepted the command.
+     * Triggers playback of a Spotify track via Spotify Connect Web API if an active session exists.
      */
     suspend fun playSpotifyTrack(context: Context, spotifyUri: String): Boolean = withContext(Dispatchers.IO) {
         val token = getValidAccessToken(context) ?: return@withContext false
         try {
             val body = JSONObject().apply {
-                put("uris", JSONArray().put(spotifyUri))
+                if (spotifyUri.startsWith("spotify:track:")) {
+                    put("uris", JSONArray().put(spotifyUri))
+                } else {
+                    put("context_uri", spotifyUri)
+                }
             }.toString()
 
             val code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/play", token, body)
