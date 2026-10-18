@@ -14,23 +14,31 @@ import com.retro.pixelplayer.R
  */
 class MechanicalFeedback(context: Context) {
 
-    private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-        vibratorManager?.defaultVibrator
-    } else {
-        @Suppress("DEPRECATION")
-        context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    private val vibrator: Vibrator? = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vibratorManager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+    } catch (_: Throwable) {
+        null
     }
 
-    private val soundPool: SoundPool = SoundPool.Builder()
-        .setMaxStreams(4)
-        .setAudioAttributes(
-            AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                .build()
-        )
-        .build()
+    private val soundPool: SoundPool? = try {
+        SoundPool.Builder()
+            .setMaxStreams(4)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .build()
+            )
+            .build()
+    } catch (_: Throwable) {
+        null
+    }
 
     private var playSoundId: Int = 0
     private var stopSoundId: Int = 0
@@ -39,12 +47,14 @@ class MechanicalFeedback(context: Context) {
 
     init {
         try {
-            playSoundId = soundPool.load(context, R.raw.sfx_play, 1)
-            stopSoundId = soundPool.load(context, R.raw.sfx_stop, 1)
-            rewindSoundId = soundPool.load(context, R.raw.sfx_rewind, 1)
-            ejectSoundId = soundPool.load(context, R.raw.sfx_eject, 1)
-        } catch (e: Exception) {
-            e.printStackTrace()
+            soundPool?.let { sp ->
+                playSoundId = sp.load(context, R.raw.sfx_play, 1)
+                stopSoundId = sp.load(context, R.raw.sfx_stop, 1)
+                rewindSoundId = sp.load(context, R.raw.sfx_rewind, 1)
+                ejectSoundId = sp.load(context, R.raw.sfx_eject, 1)
+            }
+        } catch (_: Throwable) {
+            // Safe fallback during Layoutlib / Compose Preview
         }
     }
 
@@ -54,7 +64,7 @@ class MechanicalFeedback(context: Context) {
     fun onPlayPress() {
         vibrateHeavy()
         if (playSoundId != 0) {
-            soundPool.play(playSoundId, 1f, 1f, 1, 0, 1f)
+            soundPool?.play(playSoundId, 1f, 1f, 1, 0, 1f)
         }
     }
 
@@ -64,7 +74,7 @@ class MechanicalFeedback(context: Context) {
     fun onStopPress() {
         vibrateHeavy()
         if (stopSoundId != 0) {
-            soundPool.play(stopSoundId, 1f, 1f, 1, 0, 1f)
+            soundPool?.play(stopSoundId, 1f, 1f, 1, 0, 1f)
         }
     }
 
@@ -74,7 +84,7 @@ class MechanicalFeedback(context: Context) {
     fun onRewindPress() {
         vibrateTick()
         if (rewindSoundId != 0) {
-            soundPool.play(rewindSoundId, 1f, 1f, 1, 0, 1f)
+            soundPool?.play(rewindSoundId, 1f, 1f, 1, 0, 1f)
         }
     }
 
@@ -84,7 +94,7 @@ class MechanicalFeedback(context: Context) {
     fun onTapeLatch() {
         vibrateDoublePulse()
         if (ejectSoundId != 0) {
-            soundPool.play(ejectSoundId, 1f, 1f, 1, 0, 1f)
+            soundPool?.play(ejectSoundId, 1f, 1f, 1, 0, 1f)
         }
     }
 
@@ -101,7 +111,7 @@ class MechanicalFeedback(context: Context) {
     fun onTick() {
         vibrateTick()
         if (rewindSoundId != 0) {
-            soundPool.play(rewindSoundId, 0.7f, 0.7f, 1, 0, 1.2f)
+            soundPool?.play(rewindSoundId, 0.7f, 0.7f, 1, 0, 1.2f)
         }
     }
 
@@ -135,6 +145,6 @@ class MechanicalFeedback(context: Context) {
     }
 
     fun release() {
-        soundPool.release()
+        soundPool?.release()
     }
 }
