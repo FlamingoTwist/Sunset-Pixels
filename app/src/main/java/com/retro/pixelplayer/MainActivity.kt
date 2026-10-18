@@ -127,19 +127,28 @@ fun RetroAppRoot(
     val localArtistTapes = remember { LocalMusicScanner.buildArtistTapes(context, allTracks) }
     val localPlaylistTapes = remember { LocalMusicScanner.buildPlaylistTapes(allTracks) }
 
-    // Spotify state & synced tapes
+    // Load cached Spotify library synchronously on frame 1 so cassettes are populated immediately on reopen!
+    val initialSpotifyCache = remember { SpotifyManager.loadCachedLibrary(context) }
+
     var isSpotifyLoggedIn by remember { mutableStateOf(SpotifyManager.isLoggedIn(context)) }
-    var spotifyUserName by remember { mutableStateOf(SpotifyManager.getSavedUserName(context)) }
+    var spotifyUserName by remember {
+        mutableStateOf(initialSpotifyCache?.userName ?: SpotifyManager.getSavedUserName(context))
+    }
     var spotifySyncStatus by remember {
         mutableStateOf(
-            if (isSpotifyLoggedIn) "READY TO SYNC SPOTIFY TAPES" else "LOG IN TO IMPORT YOUR SPOTIFY TAPES"
+            initialSpotifyCache?.statusMessage
+                ?: if (isSpotifyLoggedIn) "READY TO SYNC SPOTIFY TAPES" else "LOG IN TO IMPORT YOUR SPOTIFY TAPES"
         )
     }
     var isSpotifySyncing by remember { mutableStateOf(false) }
     var showSpotifyDialog by remember { mutableStateOf(false) }
 
-    var spotifyArtistTapes by remember { mutableStateOf<Map<String, List<TapeItem>>>(emptyMap()) }
-    var spotifyPlaylistTapes by remember { mutableStateOf<List<TapeItem>>(emptyList()) }
+    var spotifyArtistTapes by remember {
+        mutableStateOf<Map<String, List<TapeItem>>>(initialSpotifyCache?.artistTapes ?: emptyMap())
+    }
+    var spotifyPlaylistTapes by remember {
+        mutableStateOf<List<TapeItem>>(initialSpotifyCache?.playlistTapes ?: emptyList())
+    }
 
     // Combined Local + Spotify Tapes for the Shelf & Shoe Box
     val artistTapes = remember(localArtistTapes, spotifyArtistTapes) {
@@ -154,6 +163,16 @@ fun RetroAppRoot(
 
     val playlistTapes = remember(localPlaylistTapes, spotifyPlaylistTapes) {
         spotifyPlaylistTapes + localPlaylistTapes
+    }
+
+    // Active loaded Tape (restores last selected tape from SharedPreferences if available)
+    var currentTape by remember {
+        val savedId = SpotifyManager.getLastTapeId(context)
+        val allAvailable = playlistTapes + artistTapes.values.flatten()
+        val matched = if (savedId != null) allAvailable.firstOrNull { it.id == savedId } else null
+        mutableStateOf<TapeItem?>(
+            matched ?: playlistTapes.firstOrNull() ?: artistTapes.values.firstOrNull()?.firstOrNull()
+        )
     }
 
     fun triggerSpotifySync() {
@@ -173,6 +192,15 @@ fun RetroAppRoot(
                 spotifyArtistTapes = syncData.artistTapes
                 spotifyPlaylistTapes = syncData.playlistTapes
                 spotifySyncStatus = syncData.statusMessage
+
+                // If the user had a Spotify tape selected before closing the app (or no tape yet), restore/update it
+                val savedId = SpotifyManager.getLastTapeId(context)
+                val allSynced = syncData.playlistTapes + syncData.artistTapes.values.flatten()
+                if (savedId != null) {
+                    allSynced.firstOrNull { it.id == savedId }?.let { currentTape = it }
+                } else if (currentTape == null) {
+                    currentTape = syncData.playlistTapes.firstOrNull()
+                }
             }.onFailure { err ->
                 spotifySyncStatus = "SYNC ERROR: ${err.message?.take(36)}"
             }
@@ -200,28 +228,34 @@ fun RetroAppRoot(
         }
     }
 
-    // Auto-sync Spotify tapes on startup if already logged in
+    // Background refresh of Spotify tapes on startup if logged in
     LaunchedEffect(Unit) {
         if (isSpotifyLoggedIn) {
             triggerSpotifySync()
         }
     }
 
-    // Active loaded Tape
-    var currentTape by remember {
-        mutableStateOf<TapeItem?>(
-            playlistTapes.firstOrNull() ?: artistTapes.values.firstOrNull()?.firstOrNull()
-        )
-    }
-
     var activeTrackIndex by remember { mutableIntStateOf(0) }
     var currentScreen by remember { mutableStateOf(CurrentAppView.DECK) }
 
-    // ExoPlayer engine
+    // ExoPlayer engine configured with custom HTTP User-Agent for full-length audio streams
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            repeatMode = Player.REPEAT_MODE_ALL
-        }
+        val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+            .setUserAgent(SpotifyManager.STREAM_USER_AGENT)
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(8000)
+            .setReadTimeoutMs(8000)
+        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
+            context,
+            httpDataSourceFactory
+        )
+        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory)
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+            .apply {
+                repeatMode = Player.REPEAT_MODE_OFF
+            }
     }
 
     var isTapeInserted by remember { mutableStateOf(true) }
@@ -238,56 +272,20 @@ fun RetroAppRoot(
         null
     }
 
-    // Handle Android system back button
-    BackHandler(enabled = currentScreen == CurrentAppView.TAPE_SELECTION) {
-        currentScreen = CurrentAppView.DECK
-    }
-
-    // Listen to ExoPlayer playback events
-    DisposableEffect(exoPlayer) {
-        val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing || isSpotifyRemotePlaying
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) {
-                    totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                }
-            }
-
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-            }
-        }
-        exoPlayer.addListener(listener)
-        onDispose {
-            exoPlayer.removeListener(listener)
-            exoPlayer.release()
-        }
-    }
-
-    // Timer updater coroutine for LCD display (works for both ExoPlayer and Spotify Connect)
-    LaunchedEffect(isPlaying, isSpotifyRemotePlaying) {
-        while (isPlaying) {
-            if (isSpotifyRemotePlaying && !exoPlayer.isPlaying) {
-                delay(1000)
-                if (isPlaying && !isPaused) {
-                    currentPositionMs = (currentPositionMs + 1000L).coerceAtMost(totalDurationMs)
-                }
-            } else {
-                currentPositionMs = exoPlayer.currentPosition
-                totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                delay(400)
-            }
-        }
-    }
-
     fun playTrack(track: Track?) {
         if (track == null || !isTapeInserted) return
         val scheme = track.contentUri.scheme ?: ""
 
-        if (scheme == "http" || scheme == "https" || scheme == "content" || scheme == "file") {
+        // Pre-resolve the next track on the cassette in the background for instant skipping
+        if (activeTracks.size > 1) {
+            val nextIdx = (activeTrackIndex + 1) % activeTracks.size
+            val nextTrack = activeTracks[nextIdx]
+            coroutineScope.launch {
+                SpotifyManager.resolveTrackStreamUri(nextTrack)
+            }
+        }
+
+        if (scheme == "content" || scheme == "file") {
             isSpotifyRemotePlaying = false
             val mediaItem = MediaItem.fromUri(track.contentUri)
             exoPlayer.setMediaItem(mediaItem)
@@ -295,10 +293,12 @@ fun RetroAppRoot(
             exoPlayer.play()
             isPaused = false
         } else {
-            // Resolve direct audio stream URL for Spotify track on the fly so ExoPlayer plays out of device speakers
+            // Resolve full-length audio stream URL for Spotify track so ExoPlayer plays the full song!
             exoPlayer.stop()
             isPlaying = true
             isPaused = false
+            currentPositionMs = 0L
+            totalDurationMs = track.durationMs.coerceAtLeast(180000L)
             coroutineScope.launch {
                 val streamUri = SpotifyManager.resolveTrackStreamUri(track)
                 if (streamUri != null) {
@@ -310,10 +310,79 @@ fun RetroAppRoot(
                 } else if (track.spotifyUri != null) {
                     // Fallback to Spotify Connect remote if no stream found
                     isSpotifyRemotePlaying = true
-                    currentPositionMs = 0L
-                    totalDurationMs = track.durationMs.coerceAtLeast(180000L)
                     SpotifyManager.playSpotifyTrack(context, track.spotifyUri)
                 }
+            }
+        }
+    }
+
+    // Handle Android system back button
+    BackHandler(enabled = currentScreen == CurrentAppView.TAPE_SELECTION) {
+        currentScreen = CurrentAppView.DECK
+    }
+
+    // Listen to ExoPlayer playback events (including auto-advancing to next track on cassette)
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                if (playing) {
+                    isPlaying = true
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    val dur = exoPlayer.duration
+                    if (dur > 0) {
+                        totalDurationMs = dur
+                    }
+                } else if (playbackState == Player.STATE_ENDED) {
+                    val tracks = currentTape?.tracks ?: emptyList()
+                    if (tracks.isNotEmpty()) {
+                        if (exoPlayer.repeatMode == Player.REPEAT_MODE_ONE) {
+                            exoPlayer.seekTo(0L)
+                            exoPlayer.play()
+                        } else {
+                            activeTrackIndex = if (exoPlayer.shuffleModeEnabled && tracks.size > 1) {
+                                tracks.indices.random()
+                            } else {
+                                (activeTrackIndex + 1) % tracks.size
+                            }
+                            playTrack(tracks[activeTrackIndex])
+                        }
+                    }
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val dur = exoPlayer.duration
+                if (dur > 0) {
+                    totalDurationMs = dur
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
+
+    // Timer updater coroutine for LCD display (smooth 250ms updates for responsive Fast-Forward/Rewind)
+    LaunchedEffect(isPlaying, isSpotifyRemotePlaying) {
+        while (isPlaying) {
+            if (isSpotifyRemotePlaying && !exoPlayer.isPlaying) {
+                delay(1000)
+                if (isPlaying && !isPaused) {
+                    currentPositionMs = (currentPositionMs + 1000L).coerceAtMost(totalDurationMs)
+                }
+            } else {
+                currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+                val dur = exoPlayer.duration
+                if (dur > 0) {
+                    totalDurationMs = dur
+                }
+                delay(250)
             }
         }
     }
@@ -370,6 +439,7 @@ fun RetroAppRoot(
                     onSpotifyClicked = { showSpotifyDialog = true },
                     onTapeSelected = { selectedTape ->
                         currentTape = selectedTape
+                        SpotifyManager.saveLastTapeId(context, selectedTape.id)
                         activeTrackIndex = 0
                         isTapeInserted = true
                         currentScreen = CurrentAppView.DECK
@@ -502,7 +572,10 @@ fun RetroAppRoot(
                             coroutineScope.launch { SpotifyManager.setSpotifyRepeat(context, enabled) }
                         }
                     },
-                    onSeek = { targetMs ->
+                    onSeek = { deltaMs ->
+                        val dur = if (exoPlayer.duration > 0) exoPlayer.duration else totalDurationMs.coerceAtLeast(30_000L)
+                        val cur = if (isSpotifyRemotePlaying && !exoPlayer.isPlaying) currentPositionMs else exoPlayer.currentPosition
+                        val targetMs = (cur + deltaMs).coerceIn(0L, dur)
                         exoPlayer.seekTo(targetMs)
                         currentPositionMs = targetMs
                         if (isSpotifyRemotePlaying) {
@@ -1049,9 +1122,12 @@ private fun TransportButtonsRow(
             width = 46.dp,
             height = 50.dp,
             onDownPress = { feedback.onRewindPress() },
+            onHoldRepeat = {
+                feedback.onTick()
+                onSeek(-5_000L)
+            },
             onClick = {
-                val newPos = (currentPositionMs - 5000L).coerceAtLeast(0L)
-                onSeek(newPos)
+                onSeek(-10_000L)
             }
         )
 
@@ -1073,9 +1149,12 @@ private fun TransportButtonsRow(
             width = 46.dp,
             height = 50.dp,
             onDownPress = { feedback.onRewindPress() },
+            onHoldRepeat = {
+                feedback.onTick()
+                onSeek(5_000L)
+            },
             onClick = {
-                val newPos = (currentPositionMs + 5000L).coerceAtMost(totalDurationMs)
-                onSeek(newPos)
+                onSeek(10_000L)
             }
         )
 

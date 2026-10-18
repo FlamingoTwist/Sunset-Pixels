@@ -49,6 +49,8 @@ fun MechanicalButton(
 ) {
     var isPressedLocally by remember { mutableStateOf(false) }
     val isDown = isPressedLocally || isLatched
+    val currentOnDownPress by androidx.compose.runtime.rememberUpdatedState(onDownPress)
+    val currentOnClick by androidx.compose.runtime.rememberUpdatedState(onClick)
 
     val travelOffset = if (isDown) 4.dp else 0.dp
     val bevelDepth = if (isDown) 2.dp else 6.dp
@@ -69,11 +71,11 @@ fun MechanicalButton(
                 detectTapGestures(
                     onPress = {
                         isPressedLocally = true
-                        onDownPress()
+                        currentOnDownPress()
                         val released = tryAwaitRelease()
                         isPressedLocally = false
                         if (released) {
-                            onClick()
+                            currentOnClick()
                         }
                     }
                 )

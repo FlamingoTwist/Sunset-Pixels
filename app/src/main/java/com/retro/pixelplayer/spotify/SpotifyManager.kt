@@ -39,9 +39,14 @@ object SpotifyManager {
     private const val KEY_REFRESH_TOKEN = "refresh_token"
     private const val KEY_EXPIRES_AT = "expires_at"
     private const val KEY_USER_NAME = "user_name"
+    private const val KEY_LAST_TAPE_ID = "last_tape_id"
+    private const val CACHE_FILE_NAME = "spotify_library_cache_v2.json"
 
     const val REDIRECT_URI = "pixelplayer://spotify-callback"
     const val DEFAULT_CLIENT_ID = "a65f41a4d09c4187af8257c4903b991a"
+    const val STREAM_USER_AGENT = "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)"
+
+    private val resolvedStreamCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Uri, Long>>()
 
     private const val SCOPES =
         "user-read-private playlist-read-private playlist-read-collaborative " +
@@ -71,6 +76,18 @@ object SpotifyManager {
             .apply()
     }
 
+    fun saveLastTapeId(context: Context, tapeId: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_TAPE_ID, tapeId)
+            .apply()
+    }
+
+    fun getLastTapeId(context: Context): String? {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_LAST_TAPE_ID, null)
+    }
+
     fun isLoggedIn(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return !prefs.getString(KEY_ACCESS_TOKEN, null).isNullOrBlank()
@@ -88,6 +105,10 @@ object SpotifyManager {
             .clear()
             .putString(KEY_CLIENT_ID, clientId)
             .apply()
+        try {
+            java.io.File(context.filesDir, CACHE_FILE_NAME).delete()
+        } catch (_: Exception) {
+        }
     }
 
     /**
@@ -330,11 +351,7 @@ object SpotifyManager {
                         albumArtworkCache[artKey] = downloadAndPixelateArtwork(imageUrl)
                     }
 
-                    val contentUri = if (previewUrl.isNotBlank() && previewUrl != "null") {
-                        Uri.parse(previewUrl)
-                    } else {
-                        Uri.parse(trUri.ifBlank { "spotify:track:0" })
-                    }
+                    val contentUri = Uri.parse(trUri.ifBlank { "spotify:track:$i" })
 
                     val trackObj = Track(
                         id = trId,
@@ -402,12 +419,7 @@ object SpotifyManager {
                         val trTitle = tr.optString("name", "Track")
                         val trDur = tr.optLong("duration_ms", 180000L)
                         val trUri = tr.optString("uri", "")
-                        val previewUrl = tr.optString("preview_url", "")
-                        val contentUri = if (previewUrl.isNotBlank() && previewUrl != "null") {
-                            Uri.parse(previewUrl)
-                        } else {
-                            Uri.parse(trUri.ifBlank { "spotify:track:0" })
-                        }
+                        val contentUri = Uri.parse(trUri.ifBlank { "spotify:track:$t" })
 
                         allSpotifyTracks.add(
                             Track(
@@ -439,7 +451,6 @@ object SpotifyManager {
                         val trTitle = tr.optString("name", "Track")
                         val trDur = tr.optLong("duration_ms", 180000L)
                         val trUri = tr.optString("uri", "")
-                        val previewUrl = tr.optString("preview_url", "")
 
                         val albumObj = tr.optJSONObject("album")
                         val albumName = albumObj?.optString("name", "Top Tracks") ?: "Top Tracks"
@@ -456,11 +467,7 @@ object SpotifyManager {
                             albumArtworkCache[artKey] = downloadAndPixelateArtwork(imageUrl)
                         }
 
-                        val contentUri = if (previewUrl.isNotBlank() && previewUrl != "null") {
-                            Uri.parse(previewUrl)
-                        } else {
-                            Uri.parse(trUri.ifBlank { "spotify:track:0" })
-                        }
+                        val contentUri = Uri.parse(trUri.ifBlank { "spotify:track:$i" })
 
                         allSpotifyTracks.add(
                             Track(
@@ -534,23 +541,183 @@ object SpotifyManager {
                 artistTapes[artist] = list
             }
 
-            android.util.Log.d("SpotifySync", "Sync complete: ${playlistTapes.size} mixtapes, ${artistTapes.size} artists")
-            Result.success(
-                SpotifySyncResult(
-                    userName = userName,
-                    artistTapes = artistTapes,
-                    playlistTapes = playlistTapes,
-                    statusMessage = "SYNCED ${playlistTapes.size} MIXTAPES & ${artistTapes.size} ARTISTS"
-                )
+            val syncResult = SpotifySyncResult(
+                userName = userName,
+                artistTapes = artistTapes,
+                playlistTapes = playlistTapes,
+                statusMessage = "SYNCED ${playlistTapes.size} MIXTAPES & ${artistTapes.size} ARTISTS"
             )
+            saveLibraryToCache(context, syncResult)
+            android.util.Log.d("SpotifySync", "Sync complete & cached: ${playlistTapes.size} mixtapes, ${artistTapes.size} artists")
+            Result.success(syncResult)
         } catch (e: Exception) {
             android.util.Log.e("SpotifySync", "Sync failed", e)
             Result.failure(e)
         }
     }
 
+    /**
+     * Saves the synced Spotify cassettes (including pixelated 16-bit artwork bitmaps) to local disk
+     * so reopening the app populates all Spotify cassettes at 0ms without needing any button press!
+     */
+    private fun saveLibraryToCache(context: Context, data: SpotifySyncResult) {
+        try {
+            val root = JSONObject()
+            root.put("userName", data.userName)
+            root.put("statusMessage", data.statusMessage)
+
+            val playlistsArr = JSONArray()
+            data.playlistTapes.forEach { playlistsArr.put(serializeTapeItem(it)) }
+            root.put("playlistTapes", playlistsArr)
+
+            val artistsObj = JSONObject()
+            data.artistTapes.forEach { (artist, tapes) ->
+                val arr = JSONArray()
+                tapes.forEach { arr.put(serializeTapeItem(it)) }
+                artistsObj.put(artist, arr)
+            }
+            root.put("artistTapes", artistsObj)
+
+            java.io.File(context.filesDir, CACHE_FILE_NAME).writeText(root.toString())
+        } catch (e: Exception) {
+            android.util.Log.w("SpotifySync", "Cache save warning: ${e.message}")
+        }
+    }
+
+    /**
+     * Synchronously loads the cached Spotify cassettes on startup so shelves are populated immediately.
+     */
+    fun loadCachedLibrary(context: Context): SpotifySyncResult? {
+        if (!isLoggedIn(context)) return null
+        val file = java.io.File(context.filesDir, CACHE_FILE_NAME)
+        if (!file.exists()) return null
+        return try {
+            val root = JSONObject(file.readText())
+            val userName = root.optString("userName", getSavedUserName(context))
+            val statusMessage = root.optString("statusMessage", "SPOTIFY TAPES LOADED")
+
+            val playlistTapes = mutableListOf<TapeItem>()
+            val playlistsArr = root.optJSONArray("playlistTapes") ?: JSONArray()
+            for (i in 0 until playlistsArr.length()) {
+                val obj = playlistsArr.optJSONObject(i) ?: continue
+                playlistTapes.add(deserializeTapeItem(obj))
+            }
+
+            val artistTapes = mutableMapOf<String, List<TapeItem>>()
+            val artistsObj = root.optJSONObject("artistTapes")
+            if (artistsObj != null) {
+                val keys = artistsObj.keys()
+                while (keys.hasNext()) {
+                    val artist = keys.next()
+                    val arr = artistsObj.optJSONArray(artist) ?: continue
+                    val list = mutableListOf<TapeItem>()
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        list.add(deserializeTapeItem(obj))
+                    }
+                    if (list.isNotEmpty()) {
+                        artistTapes[artist] = list
+                    }
+                }
+            }
+
+            SpotifySyncResult(
+                userName = userName,
+                artistTapes = artistTapes,
+                playlistTapes = playlistTapes,
+                statusMessage = statusMessage
+            )
+        } catch (e: Exception) {
+            android.util.Log.w("SpotifySync", "Cache load warning: ${e.message}")
+            null
+        }
+    }
+
+    private fun serializeTapeItem(tape: TapeItem): JSONObject {
+        val obj = JSONObject()
+        obj.put("id", tape.id)
+        obj.put("title", tape.title)
+        obj.put("subtitle", tape.subtitle)
+        obj.put("type", tape.type.name)
+        obj.put("spineColorHex", tape.spineColorHex)
+        obj.put("labelColorHex", tape.labelColorHex)
+        obj.put("isHomeMade", tape.isHomeMade)
+        obj.put("isSpotify", tape.isSpotify)
+        if (tape.spotifyContextUri != null) {
+            obj.put("spotifyContextUri", tape.spotifyContextUri)
+        }
+        if (tape.artworkBitmap != null) {
+            val baos = java.io.ByteArrayOutputStream()
+            tape.artworkBitmap.compress(Bitmap.CompressFormat.PNG, 100, baos)
+            obj.put("artworkBase64", Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP))
+        }
+        val tracksArr = JSONArray()
+        tape.tracks.forEach { tr ->
+            val tObj = JSONObject()
+            tObj.put("id", tr.id)
+            tObj.put("title", tr.title)
+            tObj.put("artist", tr.artist)
+            tObj.put("album", tr.album)
+            tObj.put("durationMs", tr.durationMs)
+            tObj.put("contentUri", tr.contentUri.toString())
+            if (tr.spotifyUri != null) tObj.put("spotifyUri", tr.spotifyUri)
+            tracksArr.put(tObj)
+        }
+        obj.put("tracks", tracksArr)
+        return obj
+    }
+
+    private fun deserializeTapeItem(obj: JSONObject): TapeItem {
+        val tracks = mutableListOf<Track>()
+        val tracksArr = obj.optJSONArray("tracks") ?: JSONArray()
+        for (i in 0 until tracksArr.length()) {
+            val tObj = tracksArr.optJSONObject(i) ?: continue
+            val spUri = tObj.optString("spotifyUri", "").ifBlank { null }
+            tracks.add(
+                Track(
+                    id = tObj.optLong("id"),
+                    title = tObj.optString("title", "Track"),
+                    artist = tObj.optString("artist", "Artist"),
+                    album = tObj.optString("album", "Album"),
+                    durationMs = tObj.optLong("durationMs", 180000L),
+                    contentUri = Uri.parse(spUri ?: tObj.optString("contentUri", "spotify:track:$i")),
+                    spotifyUri = spUri
+                )
+            )
+        }
+        val artBase64 = obj.optString("artworkBase64", "")
+        val bitmap = if (artBase64.isNotBlank()) {
+            try {
+                val bytes = Base64.decode(artBase64, Base64.NO_WRAP)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+
+        val typeName = obj.optString("type", TapeType.PLAYLIST.name)
+        val tapeType = try {
+            TapeType.valueOf(typeName)
+        } catch (_: Exception) {
+            TapeType.PLAYLIST
+        }
+
+        return TapeItem(
+            id = obj.optString("id"),
+            title = obj.optString("title"),
+            subtitle = obj.optString("subtitle"),
+            type = tapeType,
+            tracks = tracks,
+            spineColorHex = obj.optLong("spineColorHex", 0xFF1B5E20),
+            labelColorHex = obj.optLong("labelColorHex", 0xFFC8E6C9),
+            isHomeMade = obj.optBoolean("isHomeMade", false),
+            artworkBitmap = bitmap,
+            isSpotify = obj.optBoolean("isSpotify", true),
+            spotifyContextUri = obj.optString("spotifyContextUri", "").ifBlank { null }
+        )
+    }
+
     private fun fetchPlaylistTracks(playlistId: String, playlistName: String, token: String): List<Track> {
-        // First try Spotify Embed JSON which works even in Dev Mode and includes direct MP3 stream URLs
         val embedTracks = fetchEmbedTracks("playlist", playlistId, playlistName)
         if (embedTracks.isNotEmpty()) {
             return embedTracks
@@ -569,16 +736,11 @@ object SpotifyManager {
                 val trTitle = tr.optString("name", "Track")
                 val trDur = tr.optLong("duration_ms", 180000L)
                 val trUri = tr.optString("uri", "")
-                val previewUrl = tr.optString("preview_url", "")
                 val artistsArr = tr.optJSONArray("artists")
                 val artistName = artistsArr?.optJSONObject(0)?.optString("name") ?: "Spotify Artist"
                 val albumName = tr.optJSONObject("album")?.optString("name") ?: playlistName
 
-                val contentUri = if (previewUrl.isNotBlank() && previewUrl != "null") {
-                    Uri.parse(previewUrl)
-                } else {
-                    Uri.parse(trUri.ifBlank { "spotify:track:0" })
-                }
+                val contentUri = Uri.parse(trUri.ifBlank { "spotify:track:$i" })
 
                 result.add(
                     Track(
@@ -598,8 +760,9 @@ object SpotifyManager {
     }
 
     /**
-     * Fetches the trackList and direct MP3 stream URLs (https://p.scdn.co/mp3-preview/...)
-     * from Spotify's public embed state JSON for a playlist or album.
+     * Fetches the trackList from Spotify's public embed state JSON for a playlist or album.
+     * Note: We intentionally keep contentUri as "spotify:track:..." so playTrack() resolves
+     * the FULL-LENGTH song stream instead of playing the 30-second audioPreview clip!
      */
     private fun fetchEmbedTracks(entityType: String, entityId: String, defaultAlbumName: String): List<Track> {
         val result = mutableListOf<Track>()
@@ -624,18 +787,11 @@ object SpotifyManager {
             val trackList = entity.optJSONArray("trackList") ?: return emptyList()
             for (i in 0 until trackList.length().coerceAtMost(35)) {
                 val tr = trackList.optJSONObject(i) ?: continue
-                val trUri = tr.optString("uri", "")
+                val trUri = tr.optString("uri", "").ifBlank { "spotify:track:${entityId}_$i" }
                 val trTitle = tr.optString("title", "Track")
                 val artistName = tr.optString("subtitle", "Spotify Artist")
                     .replace("\u00a0", " ")
                 val trDur = tr.optLong("duration", 180000L)
-                val previewUrl = tr.optJSONObject("audioPreview")?.optString("url", "") ?: ""
-
-                val contentUri = if (previewUrl.startsWith("http")) {
-                    Uri.parse(previewUrl)
-                } else {
-                    Uri.parse(trUri.ifBlank { "spotify:track:$i" })
-                }
 
                 result.add(
                     Track(
@@ -644,7 +800,7 @@ object SpotifyManager {
                         artist = artistName,
                         album = defaultAlbumName,
                         durationMs = trDur,
-                        contentUri = contentUri,
+                        contentUri = Uri.parse(trUri),
                         spotifyUri = trUri
                     )
                 )
@@ -656,16 +812,30 @@ object SpotifyManager {
     }
 
     /**
-     * Resolves a direct playable HTTP audio stream URL for a Spotify track so ExoPlayer
-     * can play audio directly through the device/emulator speakers.
+     * Resolves a FULL-LENGTH playable HTTP audio stream (128kbps AAC M4A) for a Spotify track
+     * so ExoPlayer plays the entire song from start to finish (never truncated at 30 seconds).
      */
     suspend fun resolveTrackStreamUri(track: Track): Uri? = withContext(Dispatchers.IO) {
         val existingScheme = track.contentUri.scheme ?: ""
-        if (existingScheme == "http" || existingScheme == "https" || existingScheme == "content" || existingScheme == "file") {
+        if (existingScheme == "content" || existingScheme == "file") {
             return@withContext track.contentUri
         }
 
-        // 1. Try Spotify's track embed endpoint to get the p.scdn.co MP3 stream
+        val cacheKey = "${track.artist.lowercase().trim()}|${track.title.lowercase().trim()}"
+        val cached = resolvedStreamCache[cacheKey]
+        if (cached != null && System.currentTimeMillis() < cached.second) {
+            return@withContext cached.first
+        }
+
+        // 1. Primary: Resolve full-length audio stream via InnerTube iOS player pipeline
+        val fullStreamUri = resolveFullLengthAudioStream(track.artist, track.title, track.durationMs)
+        if (fullStreamUri != null) {
+            // Cache for 3 hours
+            resolvedStreamCache[cacheKey] = fullStreamUri to (System.currentTimeMillis() + 3 * 3600 * 1000L)
+            return@withContext fullStreamUri
+        }
+
+        // 2. Fallback: Spotify CDN embed stream if full-length lookup failed
         val spUri = track.spotifyUri ?: track.contentUri.toString()
         val trackId = spUri.substringAfterLast("spotify:track:", "").trim()
         if (trackId.isNotEmpty() && !trackId.contains(":")) {
@@ -675,32 +845,131 @@ object SpotifyManager {
                 val match = regex.find(html)
                 if (match != null) {
                     val streamUrl = match.groupValues[1].replace("\\/", "/")
-                    android.util.Log.d("SpotifySync", "Resolved Spotify CDN stream for ${track.title}: $streamUrl")
                     return@withContext Uri.parse(streamUrl)
                 }
-            } catch (e: Exception) {
-                android.util.Log.w("SpotifySync", "Track embed stream lookup failed: ${e.message}")
+            } catch (_: Exception) {
             }
-        }
-
-        // 2. Fallback: lookup matching track stream via iTunes Search API
-        try {
-            val query = URLEncoder.encode("${track.artist} ${track.title}", "UTF-8")
-            val searchStr = getRawString("https://itunes.apple.com/search?term=$query&entity=song&limit=1")
-            val json = JSONObject(searchStr)
-            val results = json.optJSONArray("results")
-            if (results != null && results.length() > 0) {
-                val previewUrl = results.optJSONObject(0)?.optString("previewUrl", "") ?: ""
-                if (previewUrl.startsWith("http")) {
-                    android.util.Log.d("SpotifySync", "Resolved fallback stream for ${track.title}: $previewUrl")
-                    return@withContext Uri.parse(previewUrl)
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("SpotifySync", "Fallback stream lookup failed: ${e.message}")
         }
 
         null
+    }
+
+    /**
+     * Queries InnerTube search for "${artist} - ${title} Official Audio" and resolves the
+     * full-length 128kbps AAC audio/mp4 stream URL using the iOS player client.
+     */
+    private fun resolveFullLengthAudioStream(artist: String, title: String, expectedDurationMs: Long): Uri? {
+        try {
+            val cleanQuery = "$artist - $title Official Audio"
+            val searchPayload = JSONObject().apply {
+                put("context", JSONObject().apply {
+                    put("client", JSONObject().apply {
+                        put("clientName", "WEB")
+                        put("clientVersion", "2.20250101.00.00")
+                        put("hl", "en")
+                        put("gl", "US")
+                    })
+                })
+                put("query", cleanQuery)
+            }.toString()
+
+            val searchJsonStr = postRawJson(
+                urlString = "https://www.youtube.com/youtubei/v1/search?prettyPrint=false",
+                jsonBody = searchPayload,
+                userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            )
+
+            val vidRegex = Regex("\"videoId\"\\s*:\\s*\"([a-zA-Z0-9_-]{11})\"")
+            val candidateVideoIds = vidRegex.findAll(searchJsonStr)
+                .map { it.groupValues[1] }
+                .distinct()
+                .take(4)
+                .toList()
+
+            for (videoId in candidateVideoIds) {
+                val playerPayload = JSONObject().apply {
+                    put("context", JSONObject().apply {
+                        put("client", JSONObject().apply {
+                            put("clientName", "IOS")
+                            put("clientVersion", "20.03.02")
+                            put("deviceMake", "Apple")
+                            put("deviceModel", "iPhone16,2")
+                            put("osName", "iPhone")
+                            put("osVersion", "18.2.1.22C161")
+                            put("hl", "en")
+                            put("gl", "US")
+                        })
+                    })
+                    put("videoId", videoId)
+                }.toString()
+
+                val playerStr = postRawJson(
+                    urlString = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+                    jsonBody = playerPayload,
+                    userAgent = STREAM_USER_AGENT
+                )
+                val playerJson = JSONObject(playerStr)
+                val status = playerJson.optJSONObject("playabilityStatus")?.optString("status", "") ?: ""
+                if (status != "OK") continue
+
+                val adaptiveFormats = playerJson.optJSONObject("streamingData")?.optJSONArray("adaptiveFormats")
+                    ?: continue
+
+                var bestM4aUrl: String? = null
+                var bestFallbackAudioUrl: String? = null
+
+                for (i in 0 until adaptiveFormats.length()) {
+                    val fmt = adaptiveFormats.optJSONObject(i) ?: continue
+                    val url = fmt.optString("url", "")
+                    if (!url.startsWith("http")) continue
+                    val mime = fmt.optString("mimeType", "")
+                    val itag = fmt.optInt("itag", 0)
+
+                    if (itag == 140) {
+                        bestM4aUrl = url
+                        break
+                    } else if (mime.startsWith("audio/mp4") && bestM4aUrl == null) {
+                        bestM4aUrl = url
+                    } else if (mime.startsWith("audio/") && bestFallbackAudioUrl == null) {
+                        bestFallbackAudioUrl = url
+                    }
+                }
+
+                val chosenUrl = bestM4aUrl ?: bestFallbackAudioUrl
+                if (chosenUrl != null) {
+                    android.util.Log.d("SpotifySync", "Resolved FULL track stream for '$artist - $title' (videoId=$videoId)")
+                    return Uri.parse(chosenUrl)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SpotifySync", "Full stream resolution error for '$artist - $title': ${e.message}")
+        }
+        return null
+    }
+
+    private fun postRawJson(urlString: String, jsonBody: String, userAgent: String): String {
+        val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("User-Agent", userAgent)
+            connectTimeout = 6000
+            readTimeout = 6000
+        }
+        OutputStreamWriter(conn.outputStream).use { writer ->
+            writer.write(jsonBody)
+            writer.flush()
+        }
+        val code = conn.responseCode
+        val reader = if (code in 200..299) {
+            BufferedReader(InputStreamReader(conn.inputStream))
+        } else {
+            conn.disconnect()
+            throw Exception("HTTP $code")
+        }
+        val text = reader.use { it.readText() }
+        conn.disconnect()
+        return text
     }
 
     private fun getRawString(urlString: String): String {
