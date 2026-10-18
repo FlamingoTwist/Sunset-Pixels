@@ -45,9 +45,11 @@ fun SpotifyAuthDialog(
     userName: String,
     syncStatus: String,
     isSyncing: Boolean,
+    isRemoteConnected: Boolean = false,
     feedback: MechanicalFeedback,
     onLoginClicked: (String) -> Unit,
     onSyncClicked: () -> Unit,
+    onConnectRemote: (() -> Unit)? = null,
     onLogoutClicked: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -118,6 +120,13 @@ fun SpotifyAuthDialog(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp
+                        )
+                        Text(
+                            text = if (isRemoteConnected) "PLAYBACK: APP REMOTE CONNECTED 🟢" else "PLAYBACK: NOT CONNECTED (TAP AUTHORIZE) 🔴",
+                            color = if (isRemoteConnected) PixelPalette.LcdPixels else Color(0xFF7A1010),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp
                         )
                     }
                     Text(
@@ -251,6 +260,22 @@ fun SpotifyAuthDialog(
                         }
                     )
                 } else {
+                    // If not yet connected to Spotify App Remote, provide one-click authorization trigger
+                    if (!isRemoteConnected) {
+                        MechanicalButton(
+                            label = "🟢 AUTHORIZE SPOTIFY PLAYBACK",
+                            baseColor = Color(0xFF1DB954),
+                            highlightColor = Color(0xFF1ED760),
+                            shadowColor = Color(0xFF117A37),
+                            textColor = Color(0xFF0B1F11),
+                            width = 260.dp,
+                            height = 38.dp,
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                            onDownPress = { feedback.onPlayPress() },
+                            onClick = { onConnectRemote?.invoke() }
+                        )
+                    }
+
                     // Logged In Actions: Sync Tapes & Log Out
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -280,6 +305,75 @@ fun SpotifyAuthDialog(
                             onDownPress = { feedback.onStopPress() },
                             onClick = onLogoutClicked
                         )
+                    }
+
+                    // Developer Dashboard Fingerprint details (required by Spotify for App Remote)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xFF16121A))
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "SPOTIFY DEVELOPER DASHBOARD SETTINGS:",
+                            color = Color(0xFFFFAE52),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.5.sp
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    feedback.onTick()
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Package Name", "com.retro.pixelplayer"))
+                                    Toast.makeText(context, "Copied: com.retro.pixelplayer", Toast.LENGTH_SHORT).show()
+                                },
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Pkg: com.retro.pixelplayer",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 8.5.sp
+                            )
+                            Text(
+                                text = "[COPY PKG]",
+                                color = Color(0xFF1DB954),
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 8.5.sp
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    feedback.onTick()
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("SHA-1 Fingerprint", "AD:67:EE:11:6B:8E:2D:DA:4D:FC:8A:6A:80:7A:74:C0:9B:D3:39:BB"))
+                                    Toast.makeText(context, "Copied SHA-1 fingerprint", Toast.LENGTH_SHORT).show()
+                                },
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "SHA1: AD:67:EE:11:6B...39:BB",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 8.5.sp
+                            )
+                            Text(
+                                text = "[COPY SHA-1]",
+                                color = Color(0xFF1DB954),
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 8.5.sp
+                            )
+                        }
                     }
                 }
             }

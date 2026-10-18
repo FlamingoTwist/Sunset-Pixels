@@ -59,6 +59,7 @@ object SpotifyRemoteManager {
      */
     fun connect(
         context: Context,
+        showAuthView: Boolean = true,
         onConnected: (() -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null
     ) {
@@ -74,15 +75,17 @@ object SpotifyRemoteManager {
         val clientId = SpotifyManager.getSavedClientId(context)
         val params = ConnectionParams.Builder(clientId)
             .setRedirectUri(SpotifyManager.REDIRECT_URI)
-            .showAuthView(false) // CRITICAL: Never pop Spotify UI to the foreground
+            .showAuthView(showAuthView)
             .build()
 
-        SpotifyAppRemote.connect(context.applicationContext, params, object : Connector.ConnectionListener {
+        val connectContext = if (context is android.app.Activity) context else context.applicationContext
+
+        SpotifyAppRemote.connect(connectContext, params, object : Connector.ConnectionListener {
             override fun onConnected(remote: SpotifyAppRemote) {
                 isConnecting = false
                 appRemote = remote
                 _isConnected.value = true
-                Log.d(TAG, "SpotifyAppRemote successfully bound in background!")
+                Log.d(TAG, "SpotifyAppRemote successfully connected!")
 
                 // Subscribe to real-time player state updates (position, duration, isPaused, track info)
                 playerStateSubscription?.cancel()
@@ -108,7 +111,7 @@ object SpotifyRemoteManager {
             override fun onFailure(throwable: Throwable) {
                 isConnecting = false
                 _isConnected.value = false
-                Log.w(TAG, "SpotifyAppRemote background bind failure: ${throwable.message}")
+                Log.w(TAG, "SpotifyAppRemote connection failure: ${throwable.message}")
                 onError?.invoke(throwable)
             }
         })

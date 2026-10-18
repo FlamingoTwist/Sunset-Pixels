@@ -326,7 +326,7 @@ fun RetroAppRoot(
             // Play official authentic track directly through Spotify App Remote!
             exoPlayer.stop()
             isSpotifyRemotePlaying = true
-            isPlaying = true
+            isPlaying = isSpotifyRemoteConnected && (spotifyPlayerState?.isPaused == false)
             isPaused = false
             currentPositionMs = 0L
             totalDurationMs = track.durationMs.coerceAtLeast(30_000L)
@@ -418,11 +418,11 @@ fun RetroAppRoot(
     }
 
     // Timer updater coroutine for LCD display (smooth 250ms updates for responsive Fast-Forward/Rewind & reel rotation)
-    LaunchedEffect(isPlaying, isPaused, isSpotifyRemotePlaying) {
+    LaunchedEffect(isPlaying, isPaused, isSpotifyRemotePlaying, isSpotifyRemoteConnected, spotifyPlayerState?.isPaused) {
         while (isPlaying && !isPaused) {
             if (isSpotifyRemotePlaying) {
                 delay(250)
-                if (isPlaying && !isPaused) {
+                if (isPlaying && !isPaused && isSpotifyRemoteConnected && (spotifyPlayerState?.isPaused == false)) {
                     currentPositionMs = (currentPositionMs + 250L).coerceAtMost(totalDurationMs)
                 }
             } else {
@@ -442,6 +442,7 @@ fun RetroAppRoot(
             userName = spotifyUserName,
             syncStatus = spotifySyncStatus,
             isSyncing = isSpotifySyncing,
+            isRemoteConnected = isSpotifyRemoteConnected,
             feedback = feedback,
             onLoginClicked = { clientId ->
                 SpotifyManager.startLogin(context, clientId)
@@ -449,8 +450,12 @@ fun RetroAppRoot(
             onSyncClicked = {
                 triggerSpotifySync()
             },
+            onConnectRemote = {
+                SpotifyRemoteManager.connect(context, showAuthView = true)
+            },
             onLogoutClicked = {
                 SpotifyManager.logout(context)
+                SpotifyRemoteManager.disconnect()
                 isSpotifyLoggedIn = false
                 spotifyArtistTapes = emptyMap()
                 spotifyPlaylistTapes = emptyList()
