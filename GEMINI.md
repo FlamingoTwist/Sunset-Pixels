@@ -1,6 +1,6 @@
-# GEMINI.md — Sunset Pixels Agent Guide
+# GEMINI.md — Sunset Soundwaves Agent Guide
 
-**Sunset Pixels** (`com.retro.pixelplayer`) is an Android retro 16-bit cassette-deck music player built with Kotlin, Jetpack Compose, and Media3 (`ExoPlayer`). It blends local device audio files and Spotify playlists/saved tracks into physical-feeling cassettes stored on a wooden **Artist Shelf** and in a cardboard **Playlist Shoe Box**.
+**Sunset Soundwaves** (`com.retro.pixelplayer`) is an Android retro 16-bit cassette-deck music player built with Kotlin, Jetpack Compose, and Media3 (`ExoPlayer`). It blends local device audio files and Spotify playlists/saved tracks into physical-feeling cassettes stored on a wooden **Artist Shelf** and in a cardboard **Playlist Shoe Box**.
 
 This document captures the architectural nuances, non-obvious workarounds, and visual/audio invariants that agents must preserve when modifying the app.
 

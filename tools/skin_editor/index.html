@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sunset Pixels - Visual Skin Studio</title>
+<title>Sunset Soundwaves - Visual Skin Studio</title>
 <script src="assets.js"></script>
 <style>
   :root {
@@ -683,7 +683,7 @@
 <header>
   <div class="logo-group">
     <div class="logo-badge">RETRO</div>
-    <div class="logo-title">Sunset Pixels - Visual Skin Studio</div>
+    <div class="logo-title">Sunset Soundwaves - Visual Skin Studio</div>
   </div>
 
   <div class="toolbar-group">
@@ -1015,7 +1015,7 @@ function saveSkinFile() {
   const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportPayload, null, 2));
   const dlAnchor = document.createElement('a');
   dlAnchor.setAttribute("href", dataStr);
-  dlAnchor.setAttribute("download", "sunset-pixels-skin.json");
+  dlAnchor.setAttribute("download", "sunset-soundwaves-skin.json");
   document.body.appendChild(dlAnchor);
   dlAnchor.click();
   dlAnchor.remove();
@@ -1773,7 +1773,7 @@ function toggleSimulation() {
 function generateFullSkinPayload() {
   return {
     version: 1,
-    skinName: "Sunset Pixels Walkman Classic",
+    skinName: "Sunset Soundwaves Walkman Classic",
     viewports: {
       portrait: {
         canvasWidth: VIEWPORTS.portrait.width,

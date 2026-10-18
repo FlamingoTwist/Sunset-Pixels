@@ -823,7 +823,7 @@ fun DeckScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "◆ SUNSET PIXELS ◆",
+                    text = "◆ SUNSET SOUNDWAVES ◆",
                     color = PixelPalette.ChassisHighlight,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Black,
@@ -1407,7 +1407,7 @@ private fun DeckScreenLandscapePreview() {
         id = 1L,
         title = "Neon Sunset",
         artist = "Neon Dreamer",
-        album = "Sunset Pixels",
+        album = "Sunset Soundwaves",
         durationMs = 215_000L,
         contentUri = Uri.EMPTY
     )
@@ -1457,7 +1457,7 @@ private fun DeckScreenPortraitPreview() {
         id = 1L,
         title = "Neon Sunset",
         artist = "Neon Dreamer",
-        album = "Sunset Pixels",
+        album = "Sunset Soundwaves",
         durationMs = 215_000L,
         contentUri = Uri.EMPTY
     )

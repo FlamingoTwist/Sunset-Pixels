@@ -70,7 +70,7 @@ class PlaybackService : MediaLibraryService() {
                 .setMediaId(ROOT_ID)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
-                        .setTitle("Sunset Pixels")
+                        .setTitle("Sunset Soundwaves")
                         .setIsBrowsable(true)
                         .setIsPlayable(false)
                         .setFolderType(MediaMetadata.FOLDER_TYPE_MIXED)
@@ -225,7 +225,7 @@ class PlaybackService : MediaLibraryService() {
                 .setMediaId(mediaId)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
-                        .setTitle("Sunset Pixels Track")
+                        .setTitle("Sunset Soundwaves Track")
                         .setIsPlayable(true)
                         .setIsBrowsable(false)
                         .build()

@@ -58,7 +58,7 @@ object SkinManager {
     private fun parseSkinJson(jsonStr: String): SkinData? {
         return try {
             val root = JSONObject(jsonStr)
-            val name = root.optString("skinName", "Sunset Pixels Walkman Classic")
+            val name = root.optString("skinName", "Sunset Soundwaves Walkman Classic")
             val viewports = root.getJSONObject("viewports")
 
             val portraitVp = parseViewport(viewports.getJSONObject("portrait"))
@@ -120,6 +120,6 @@ object SkinManager {
             "btn_stop" to SkinElement("btn_stop", "Stop", "btn_stop_unpressed.png", 826f, 272f, 48f, 48f, 0.9027f, 0.6602f, 0.0525f, 0.1165f)
         )
 
-        return SkinData("Sunset Pixels Walkman Classic", ViewportSkin(412f, 915f, portraitMap), ViewportSkin(915f, 412f, landscapeMap))
+        return SkinData("Sunset Soundwaves Walkman Classic", ViewportSkin(412f, 915f, portraitMap), ViewportSkin(915f, 412f, landscapeMap))
     }
 }
