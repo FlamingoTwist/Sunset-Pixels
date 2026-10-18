@@ -2,6 +2,7 @@ package com.retro.pixelplayer.spotify
 
 import android.content.Context
 import android.media.AudioManager
+import android.net.Uri
 import android.util.Log
 import android.view.KeyEvent
 import com.spotify.android.appremote.api.ConnectionParams
@@ -168,8 +169,22 @@ object SpotifyRemoteManager {
             connect(
                 context = context,
                 onError = { err ->
-                    _lastError.value = "SPOTIFY OFFLINE"
-                    onError?.invoke(err.message ?: "SPOTIFY DISCONNECTED")
+                    Log.w(TAG, "App Remote connect failed, falling back to Web API / intent playback: ${err.message}")
+                    scope.launch {
+                        val webSuccess = SpotifyManager.playSpotifyTrack(context, spotifyUri)
+                        if (!webSuccess) {
+                            try {
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(spotifyUri)).apply {
+                                    setPackage("com.spotify.music")
+                                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(intent)
+                            } catch (_: Exception) {
+                                _lastError.value = "SPOTIFY OFFLINE"
+                                onError?.invoke(err.message ?: "SPOTIFY DISCONNECTED")
+                            }
+                        }
+                    }
                 }
             )
         }
