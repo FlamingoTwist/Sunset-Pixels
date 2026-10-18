@@ -278,7 +278,7 @@ fun RetroAppRoot(
     // Eagerly connect to Spotify App Remote if Spotify is logged in and installed
     DisposableEffect(isSpotifyLoggedIn) {
         if (isSpotifyLoggedIn && SpotifyRemoteManager.isInstalled(context)) {
-            SpotifyRemoteManager.connect(context, showAuthView = false)
+            SpotifyRemoteManager.connect(context)
         }
         onDispose {
             SpotifyRemoteManager.disconnect()
@@ -337,7 +337,7 @@ fun RetroAppRoot(
         } else {
             // Local device audio track
             if (isSpotifyRemotePlaying) {
-                SpotifyRemoteManager.pause()
+                SpotifyRemoteManager.pause(context)
             }
             isSpotifyRemotePlaying = false
             val mediaItem = MediaItem.fromUri(track.contentUri)
@@ -522,7 +522,7 @@ fun RetroAppRoot(
                                 if (isSpotifyRemotePlaying) {
                                     isPlaying = true
                                     isPaused = false
-                                    SpotifyRemoteManager.resume()
+                                    SpotifyRemoteManager.resume(context)
                                 } else {
                                     exoPlayer.play()
                                     isPaused = false
@@ -537,7 +537,7 @@ fun RetroAppRoot(
                             if (isSpotifyRemotePlaying) {
                                 isPlaying = false
                                 isPaused = true
-                                SpotifyRemoteManager.pause()
+                                SpotifyRemoteManager.pause(context)
                             } else {
                                 exoPlayer.pause()
                                 isPaused = true
@@ -546,7 +546,7 @@ fun RetroAppRoot(
                     },
                     onStop = {
                         if (isSpotifyRemotePlaying) {
-                            SpotifyRemoteManager.pause()
+                            SpotifyRemoteManager.pause(context)
                         }
                         isSpotifyRemotePlaying = false
                         isPlaying = false
@@ -559,7 +559,12 @@ fun RetroAppRoot(
                         if (activeTracks.isNotEmpty()) {
                             activeTrackIndex = if (activeTrackIndex - 1 < 0) activeTracks.size - 1 else activeTrackIndex - 1
                             val prevTrack = activeTracks[activeTrackIndex]
-                            if (isPlaying) {
+                            if (isSpotifyRemotePlaying) {
+                                currentPositionMs = 0L
+                                totalDurationMs = prevTrack.durationMs.coerceAtLeast(30_000L)
+                                val uri = prevTrack.spotifyUri ?: if (prevTrack.contentUri.scheme == "spotify") prevTrack.contentUri.toString() else "spotify:track:${prevTrack.id}"
+                                SpotifyRemoteManager.skipPrevious(context, uri)
+                            } else if (isPlaying) {
                                 playTrack(prevTrack)
                             }
                         }
@@ -568,7 +573,12 @@ fun RetroAppRoot(
                         if (activeTracks.isNotEmpty()) {
                             activeTrackIndex = (activeTrackIndex + 1) % activeTracks.size
                             val nextTrack = activeTracks[activeTrackIndex]
-                            if (isPlaying) {
+                            if (isSpotifyRemotePlaying) {
+                                currentPositionMs = 0L
+                                totalDurationMs = nextTrack.durationMs.coerceAtLeast(30_000L)
+                                val uri = nextTrack.spotifyUri ?: if (nextTrack.contentUri.scheme == "spotify") nextTrack.contentUri.toString() else "spotify:track:${nextTrack.id}"
+                                SpotifyRemoteManager.skipNext(context, uri)
+                            } else if (isPlaying) {
                                 playTrack(nextTrack)
                             }
                         }
@@ -576,7 +586,7 @@ fun RetroAppRoot(
                     onEject = {
                         feedback.onTapeLatch()
                         if (isSpotifyRemotePlaying) {
-                            SpotifyRemoteManager.pause()
+                            SpotifyRemoteManager.pause(context)
                         }
                         isSpotifyRemotePlaying = false
                         isPlaying = false
@@ -591,7 +601,7 @@ fun RetroAppRoot(
                         feedback.onTapeLatch()
                         if (isTapeInserted) {
                             if (isSpotifyRemotePlaying) {
-                                SpotifyRemoteManager.pause()
+                                SpotifyRemoteManager.pause(context)
                             }
                             isSpotifyRemotePlaying = false
                             isPlaying = false
@@ -608,13 +618,13 @@ fun RetroAppRoot(
                     onShuffleToggle = { enabled ->
                         exoPlayer.shuffleModeEnabled = enabled
                         if (isSpotifyRemotePlaying) {
-                            SpotifyRemoteManager.setShuffle(enabled)
+                            SpotifyRemoteManager.setShuffle(context, enabled)
                         }
                     },
                     onRepeatToggle = { enabled ->
                         exoPlayer.repeatMode = if (enabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_ALL
                         if (isSpotifyRemotePlaying) {
-                            SpotifyRemoteManager.setRepeat(enabled)
+                            SpotifyRemoteManager.setRepeat(context, enabled)
                         }
                     },
                     onSeek = { deltaMs ->
@@ -622,7 +632,7 @@ fun RetroAppRoot(
                             val dur = totalDurationMs.coerceAtLeast(30_000L)
                             val targetMs = (currentPositionMs + deltaMs).coerceIn(0L, dur)
                             currentPositionMs = targetMs
-                            SpotifyRemoteManager.seekTo(targetMs)
+                            SpotifyRemoteManager.seekTo(context, targetMs)
                         } else {
                             val dur = if (exoPlayer.duration > 0) exoPlayer.duration else totalDurationMs.coerceAtLeast(30_000L)
                             val targetMs = (exoPlayer.currentPosition + deltaMs).coerceIn(0L, dur)

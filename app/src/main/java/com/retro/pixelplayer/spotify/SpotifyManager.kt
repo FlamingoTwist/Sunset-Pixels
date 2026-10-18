@@ -1167,6 +1167,36 @@ object SpotifyManager {
         }
     }
 
+    suspend fun resumeSpotify(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val token = getValidAccessToken(context) ?: return@withContext false
+        try {
+            val code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/play", token, null)
+            code in 200..299
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun skipSpotifyNext(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val token = getValidAccessToken(context) ?: return@withContext false
+        try {
+            val code = sendPlayerRequest("POST", "https://api.spotify.com/v1/me/player/next", token, null)
+            code in 200..299
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun skipSpotifyPrev(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val token = getValidAccessToken(context) ?: return@withContext false
+        try {
+            val code = sendPlayerRequest("POST", "https://api.spotify.com/v1/me/player/previous", token, null)
+            code in 200..299
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     suspend fun seekSpotify(context: Context, positionMs: Long): Boolean = withContext(Dispatchers.IO) {
         val token = getValidAccessToken(context) ?: return@withContext false
         try {

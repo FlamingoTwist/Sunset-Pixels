@@ -1,27 +1,36 @@
 package com.retro.pixelplayer.spotify
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
+import android.media.AudioManager
 import android.util.Log
+import android.view.KeyEvent
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
 import com.spotify.protocol.client.Subscription
 import com.spotify.protocol.types.PlayerState
 import com.spotify.protocol.types.Repeat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /**
- * Manages official Spotify playback via the Spotify Android App Remote SDK.
- * Binds directly to the installed Spotify app on the device to stream genuine,
- * studio-quality audio with real-time player position, duration, and playback state.
+ * Manages Spotify playback seamlessly in the background without EVER switching
+ * focus or launching the Spotify app UI to the foreground.
+ *
+ * Utilizes a 3-layer headless approach identical to Android widgets and lockscreen media controls:
+ * 1. Spotify App Remote SDK IPC background service binding (with showAuthView = false)
+ * 2. Spotify Web API Player endpoints (/v1/me/player/...) over background HTTPS
+ * 3. Android AudioManager media key event dispatch (KEYCODE_MEDIA_...)
  */
 object SpotifyRemoteManager {
 
     private const val TAG = "SpotifyRemote"
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var appRemote: SpotifyAppRemote? = null
     private var playerStateSubscription: Subscription<PlayerState>? = null
@@ -45,11 +54,11 @@ object SpotifyRemoteManager {
     }
 
     /**
-     * Connects to the Spotify app service.
+     * Binds strictly to Spotify's background service. showAuthView is ALWAYS false
+     * so that the Spotify application UI is never brought to the foreground.
      */
     fun connect(
         context: Context,
-        showAuthView: Boolean = false,
         onConnected: (() -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null
     ) {
@@ -65,7 +74,7 @@ object SpotifyRemoteManager {
         val clientId = SpotifyManager.getSavedClientId(context)
         val params = ConnectionParams.Builder(clientId)
             .setRedirectUri(SpotifyManager.REDIRECT_URI)
-            .showAuthView(showAuthView)
+            .showAuthView(false) // CRITICAL: Never pop Spotify UI to the foreground
             .build()
 
         SpotifyAppRemote.connect(context.applicationContext, params, object : Connector.ConnectionListener {
@@ -73,7 +82,7 @@ object SpotifyRemoteManager {
                 isConnecting = false
                 appRemote = remote
                 _isConnected.value = true
-                Log.d(TAG, "SpotifyAppRemote successfully connected!")
+                Log.d(TAG, "SpotifyAppRemote successfully bound in background!")
 
                 // Subscribe to real-time player state updates (position, duration, isPaused, track info)
                 playerStateSubscription?.cancel()
@@ -99,65 +108,119 @@ object SpotifyRemoteManager {
             override fun onFailure(throwable: Throwable) {
                 isConnecting = false
                 _isConnected.value = false
-                Log.w(TAG, "SpotifyAppRemote connect failure: ${throwable.message}")
+                Log.w(TAG, "SpotifyAppRemote background bind failure: ${throwable.message}")
                 onError?.invoke(throwable)
             }
         })
     }
 
     /**
-     * Plays the authentic track corresponding to spotifyUri ("spotify:track:...").
+     * Plays the authentic track without switching apps.
      */
     fun play(context: Context, spotifyUri: String) {
         val remote = appRemote
         if (remote != null && remote.isConnected) {
             remote.playerApi.play(spotifyUri)
                 .setErrorCallback { error ->
-                    Log.w(TAG, "playerApi.play error: ${error.message}, launching Spotify intent fallback")
-                    openSpotifyIntent(context, spotifyUri)
+                    Log.w(TAG, "playerApi.play error: ${error.message}")
                 }
         } else {
             pendingPlayUri = spotifyUri
-            connect(
-                context = context,
-                showAuthView = true,
-                onConnected = {
-                    // Will play via pendingPlayUri in onConnected
-                },
-                onError = {
-                    openSpotifyIntent(context, spotifyUri)
-                }
-            )
+            connect(context)
+        }
+
+        // Parallel Web API command (executed silently in background with ZERO app switch)
+        scope.launch {
+            SpotifyManager.playSpotifyTrack(context, spotifyUri)
         }
     }
 
-    fun pause() {
+    fun pause(context: Context) {
         appRemote?.playerApi?.pause()
+        scope.launch {
+            SpotifyManager.pauseSpotify(context)
+        }
+        dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_PAUSE)
     }
 
-    fun resume() {
+    fun resume(context: Context) {
         appRemote?.playerApi?.resume()
+        scope.launch {
+            SpotifyManager.resumeSpotify(context)
+        }
+        dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_PLAY)
     }
 
-    fun seekTo(positionMs: Long) {
+    fun skipNext(context: Context, nextTrackUri: String? = null) {
+        val remote = appRemote
+        if (remote != null && remote.isConnected) {
+            if (!nextTrackUri.isNullOrBlank()) {
+                remote.playerApi.play(nextTrackUri)
+            } else {
+                remote.playerApi.skipNext()
+            }
+        } else {
+            if (!nextTrackUri.isNullOrBlank()) {
+                play(context, nextTrackUri)
+            } else {
+                dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_NEXT)
+            }
+        }
+
+        scope.launch {
+            if (!nextTrackUri.isNullOrBlank()) {
+                SpotifyManager.playSpotifyTrack(context, nextTrackUri)
+            } else {
+                SpotifyManager.skipSpotifyNext(context)
+            }
+        }
+    }
+
+    fun skipPrevious(context: Context, prevTrackUri: String? = null) {
+        val remote = appRemote
+        if (remote != null && remote.isConnected) {
+            if (!prevTrackUri.isNullOrBlank()) {
+                remote.playerApi.play(prevTrackUri)
+            } else {
+                remote.playerApi.skipPrevious()
+            }
+        } else {
+            if (!prevTrackUri.isNullOrBlank()) {
+                play(context, prevTrackUri)
+            } else {
+                dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+            }
+        }
+
+        scope.launch {
+            if (!prevTrackUri.isNullOrBlank()) {
+                SpotifyManager.playSpotifyTrack(context, prevTrackUri)
+            } else {
+                SpotifyManager.skipSpotifyPrev(context)
+            }
+        }
+    }
+
+    fun seekTo(context: Context, positionMs: Long) {
         appRemote?.playerApi?.seekTo(positionMs)
+        scope.launch {
+            SpotifyManager.seekSpotify(context, positionMs)
+        }
     }
 
-    fun skipNext() {
-        appRemote?.playerApi?.skipNext()
-    }
-
-    fun skipPrevious() {
-        appRemote?.playerApi?.skipPrevious()
-    }
-
-    fun setShuffle(enabled: Boolean) {
+    fun setShuffle(context: Context, enabled: Boolean) {
         appRemote?.playerApi?.setShuffle(enabled)
+        scope.launch {
+            SpotifyManager.setSpotifyShuffle(context, enabled)
+        }
     }
 
-    fun setRepeat(enabled: Boolean) {
+    fun setRepeat(context: Context, enabled: Boolean) {
         val mode = if (enabled) Repeat.ONE else Repeat.OFF
         appRemote?.playerApi?.setRepeat(mode)
+        scope.launch {
+            SpotifyManager.setSpotifyRepeat(context, enabled)
+        }
     }
 
     fun disconnect() {
@@ -178,15 +241,17 @@ object SpotifyRemoteManager {
         }
     }
 
-    private fun openSpotifyIntent(context: Context, spotifyUri: String) {
+    /**
+     * Dispatches a media key event via Android AudioManager (identical to widget and Bluetooth controls)
+     * which controls Spotify silently without opening its UI.
+     */
+    private fun dispatchMediaKey(context: Context, keyCode: Int) {
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(spotifyUri)).apply {
-                setPackage("com.spotify.music")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+            audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
         } catch (e: Exception) {
-            Log.w(TAG, "Could not open Spotify intent: ${e.message}")
+            Log.w(TAG, "dispatchMediaKey warning: ${e.message}")
         }
     }
 }
