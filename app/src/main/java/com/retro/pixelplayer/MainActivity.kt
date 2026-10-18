@@ -17,17 +17,22 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -692,22 +697,24 @@ fun DeckScreen(
     val tapeShellColor = if (currentTape?.isHomeMade == true) Color(0xFFF5F5DC) else Color(0xFFDC7828)
 
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing),
         color = PixelPalette.RoomDark
     ) {
         if (isLandscape) {
-            // HORIZONTAL (Landscape) Layout - Exact match to user's master layout
+            // HORIZONTAL (Landscape) Layout - Proportional coordinate match to master 1024x460 design
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(8.dp),
+                    .padding(start = 6.dp, end = 12.dp, top = 4.dp, bottom = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Header Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -730,7 +737,7 @@ fun DeckScreen(
                             shadowColor = Color(0xFF0A2910),
                             labelColor = if (isSpotifyLoggedIn) Color(0xFF0A140E) else Color(0xFFE0E0E0),
                             width = 88.dp,
-                            height = 26.dp,
+                            height = 25.dp,
                             onDownPress = { feedback.onTick() },
                             onClick = { onSpotifyClicked() }
                         )
@@ -741,129 +748,145 @@ fun DeckScreen(
                             highlightColor = Color(0xFF6D4C41),
                             shadowColor = Color(0xFF3E2723),
                             width = 82.dp,
-                            height = 26.dp,
+                            height = 25.dp,
                             onDownPress = { feedback.onTick() },
                             onClick = { onBrowseTapesClicked() }
                         )
                     }
                 }
 
-                // Main Chassis Body
-                Box(
+                // Main Chassis Body mapped to master 1024x404 interior coordinate grid
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                         .clip(RoundedCornerShape(16.dp))
                         .background(PixelPalette.ChassisBody)
                         .border(5.dp, PixelPalette.ChassisBorder, RoundedCornerShape(16.dp))
-                        .padding(10.dp)
                 ) {
+                    val cw = maxWidth
+                    val ch = maxHeight
+
                     Image(
                         painter = painterResource(id = R.drawable.chassis_texture_bg),
                         contentDescription = null,
                         modifier = Modifier.matchParentSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.FillBounds
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // 1. Cassette Door (Master: x=34, y=87, w=496, h=284; shunted slightly left to x=18)
+                    val deckW = minOf(cw * (496f / 1024f), ch * (284f / 404f) * (1024f / 593f))
+                    val deckX = cw * (18f / 1024f)
+                    val deckY = ch * (30f / 404f)
+
+                    CassetteDeck(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = deckX, y = deckY)
+                            .width(deckW),
+                        isTapeInserted = isTapeInserted,
+                        isPlaying = isPlaying,
+                        tapeTitle = tapeTitle,
+                        tapeSubtitle = tapeSubtitle,
+                        labelColor = tapeLabelColor,
+                        shellColor = tapeShellColor,
+                        isHomeMade = currentTape?.isHomeMade ?: false,
+                        artworkBitmap = currentTape?.artworkBitmap,
+                        onEjectOrInsert = { onTapeDeckTapped() }
+                    )
+
+                    // 2. Speaker Vents (Master: x=40, y=398, w=210, h=50; shunted left to x=24)
+                    val ventsX = cw * (24f / 1024f)
+                    val ventsY = ch * (342f / 404f)
+                    val ventsW = cw * (210f / 1024f)
+                    val ventsH = ch * (50f / 404f)
+
+                    Image(
+                        painter = painterResource(id = R.drawable.chassis_speaker_vents),
+                        contentDescription = "Speaker Vents",
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = ventsX, y = ventsY)
+                            .size(width = ventsW, height = ventsH),
+                        contentScale = ContentScale.FillBounds
+                    )
+
+                    // 3. Mint-Green LCD Display (Master: x=565, y=76, w=392, h=163; shunted left to x=547)
+                    val lcdW = minOf(cw * (392f / 1024f), ch * (163f / 404f) * (392f / 163f))
+                    val lcdX = cw * (547f / 1024f)
+                    val lcdY = ch * (19f / 404f)
+
+                    LcdDisplay(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = lcdX, y = lcdY)
+                            .width(lcdW),
+                        trackTitle = trackTitle,
+                        artist = artistText,
+                        source = when {
+                            currentTape?.isSpotify == true -> "SPOTIFY"
+                            currentTape?.isHomeMade == true -> "MIXTAPE"
+                            else -> "ALBUM"
+                        },
+                        timeText = formattedTime,
+                        statusText = statusText
+                    )
+
+                    // 4. Transport Buttons Bank + Labels (Master: x=536..1018, w=482, bottom=368; shunted left to x=518..1000)
+                    val buttonsX = cw * (518f / 1024f)
+                    val buttonsW = cw * (482f / 1024f)
+                    val buttonsTopY = ch * (195f / 404f)
+
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = buttonsX, y = buttonsTopY)
+                            .width(buttonsW),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        // Left Half: Cassette Door + Speaker Vents
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                            verticalArrangement = Arrangement.SpaceBetween,
-                            horizontalAlignment = Alignment.Start
-                        ) {
-                            CassetteDeck(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(1024f / 593f),
-                                isTapeInserted = isTapeInserted,
-                                isPlaying = isPlaying,
-                                tapeTitle = tapeTitle,
-                                tapeSubtitle = tapeSubtitle,
-                                labelColor = tapeLabelColor,
-                                shellColor = tapeShellColor,
-                                isHomeMade = currentTape?.isHomeMade ?: false,
-                                artworkBitmap = currentTape?.artworkBitmap,
-                                onEjectOrInsert = { onTapeDeckTapped() }
-                            )
+                        TransportButtonLabelsRow(isTapeRunning = isTapeRunning)
 
-                            Image(
-                                painter = painterResource(id = R.drawable.chassis_speaker_vents),
-                                contentDescription = "Speaker Vents",
-                                modifier = Modifier
-                                    .size(width = 120.dp, height = 28.dp)
-                                    .padding(top = 4.dp)
-                            )
-                        }
+                        TransportButtonsRow(
+                            isPlaying = isPlaying,
+                            isTapeRunning = isTapeRunning,
+                            currentPositionMs = currentPositionMs,
+                            totalDurationMs = totalDurationMs,
+                            feedback = feedback,
+                            onPlay = onPlay,
+                            onStop = onStop,
+                            onSkipPrev = onSkipPrev,
+                            onSkip = onSkip,
+                            onEject = onEject,
+                            onSeek = onSeek
+                        )
+                    }
 
-                        // Right Half: LCD Display, Transport Buttons with Labels, and Switches
-                        Column(
-                            modifier = Modifier
-                                .weight(1.1f)
-                                .fillMaxHeight(),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            LcdDisplay(
-                                trackTitle = trackTitle,
-                                artist = artistText,
-                                source = when {
-                                    currentTape?.isSpotify == true -> "SPOTIFY"
-                                    currentTape?.isHomeMade == true -> "MIXTAPE"
-                                    else -> "ALBUM"
-                                },
-                                timeText = formattedTime,
-                                statusText = statusText
-                            )
+                    // 5. Shuffle & Repeat Switches (Master: x=778..912, y=398..448; shunted left to x=760)
+                    val switchesX = cw * (760f / 1024f)
+                    val switchesY = ch * (336f / 404f)
+                    val switchW = cw * (60f / 1024f)
+                    val switchH = ch * (31f / 404f)
 
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                TransportButtonLabelsRow(isTapeRunning = isTapeRunning)
-
-                                TransportButtonsRow(
-                                    isPlaying = isPlaying,
-                                    isTapeRunning = isTapeRunning,
-                                    currentPositionMs = currentPositionMs,
-                                    totalDurationMs = totalDurationMs,
-                                    feedback = feedback,
-                                    onPlay = onPlay,
-                                    onStop = onStop,
-                                    onSkipPrev = onSkipPrev,
-                                    onSkip = onSkip,
-                                    onEject = onEject,
-                                    onSeek = onSeek
-                                )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = switchesX, y = switchesY)
+                    ) {
+                        SwitchesRow(
+                            isShuffleOn = isShuffleOn,
+                            isRepeatOn = isRepeatOn,
+                            feedback = feedback,
+                            switchWidth = switchW,
+                            switchHeight = switchH,
+                            onShuffleToggle = {
+                                isShuffleOn = !isShuffleOn
+                                onShuffleToggle(isShuffleOn)
+                            },
+                            onRepeatToggle = {
+                                isRepeatOn = !isRepeatOn
+                                onRepeatToggle(isRepeatOn)
                             }
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(end = 4.dp),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                SwitchesRow(
-                                    isShuffleOn = isShuffleOn,
-                                    isRepeatOn = isRepeatOn,
-                                    feedback = feedback,
-                                    onShuffleToggle = {
-                                        isShuffleOn = !isShuffleOn
-                                        onShuffleToggle(isShuffleOn)
-                                    },
-                                    onRepeatToggle = {
-                                        isRepeatOn = !isRepeatOn
-                                        onRepeatToggle(isRepeatOn)
-                                    }
-                                )
-                            }
-                        }
+                        )
                     }
                 }
             }
@@ -1043,69 +1066,83 @@ fun DeckScreen(
 
 @Composable
 private fun TransportButtonLabelsRow(isTapeRunning: Boolean) {
-    Row(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 2.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Bottom
+            .padding(vertical = 1.dp)
     ) {
-        Text(
-            text = "SKIP",
-            modifier = Modifier.width(46.dp),
-            textAlign = TextAlign.Center,
-            color = PixelPalette.ButtonLabelAmber,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            fontSize = 8.sp
-        )
-        Text(
-            text = "REWIND",
-            modifier = Modifier.width(46.dp),
-            textAlign = TextAlign.Center,
-            color = PixelPalette.ButtonLabelAmber,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            fontSize = 8.sp
-        )
-        Text(
-            text = "PLAY",
-            modifier = Modifier.width(58.dp),
-            textAlign = TextAlign.Center,
-            color = PixelPalette.ButtonLabelAmber,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            fontSize = 8.sp
-        )
-        Text(
-            text = "FAST\nFWD",
-            modifier = Modifier.width(46.dp),
-            textAlign = TextAlign.Center,
-            color = PixelPalette.ButtonLabelAmber,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            fontSize = 7.sp,
-            lineHeight = 8.sp
-        )
-        Text(
-            text = "SKIP\nFWD",
-            modifier = Modifier.width(46.dp),
-            textAlign = TextAlign.Center,
-            color = PixelPalette.ButtonLabelAmber,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            fontSize = 7.sp,
-            lineHeight = 8.sp
-        )
-        Text(
-            text = if (isTapeRunning) "STOP" else "EJECT",
-            modifier = Modifier.width(45.dp),
-            textAlign = TextAlign.Center,
-            color = PixelPalette.ButtonLabelAmber,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            fontSize = 8.sp
-        )
+        val rowW = maxWidth
+        val wSkip = rowW * (73f / 482f)
+        val wRewind = rowW * (72f / 482f)
+        val wPlay = rowW * (94f / 482f)
+        val wFastFwd = rowW * (73f / 482f)
+        val wSkipNext = rowW * (73f / 482f)
+        val wEject = rowW * (70f / 482f)
+        val labelSize = (rowW.value * 0.025f).coerceIn(7.5f, 10.5f).sp
+        val twoLineSize = (rowW.value * 0.022f).coerceIn(6.8f, 9.2f).sp
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Text(
+                text = "SKIP",
+                modifier = Modifier.width(wSkip),
+                textAlign = TextAlign.Center,
+                color = PixelPalette.ButtonLabelAmber,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = labelSize
+            )
+            Text(
+                text = "REWIND",
+                modifier = Modifier.width(wRewind),
+                textAlign = TextAlign.Center,
+                color = PixelPalette.ButtonLabelAmber,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = labelSize
+            )
+            Text(
+                text = "PLAY",
+                modifier = Modifier.width(wPlay),
+                textAlign = TextAlign.Center,
+                color = PixelPalette.ButtonLabelAmber,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = labelSize
+            )
+            Text(
+                text = "FAST\nFORWARD",
+                modifier = Modifier.width(wFastFwd),
+                textAlign = TextAlign.Center,
+                color = PixelPalette.ButtonLabelAmber,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = twoLineSize,
+                lineHeight = twoLineSize
+            )
+            Text(
+                text = "SKIP\nFORWARD",
+                modifier = Modifier.width(wSkipNext),
+                textAlign = TextAlign.Center,
+                color = PixelPalette.ButtonLabelAmber,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = twoLineSize,
+                lineHeight = twoLineSize
+            )
+            Text(
+                text = if (isTapeRunning) "STOP" else "EJECT",
+                modifier = Modifier.width(wEject),
+                textAlign = TextAlign.Center,
+                color = PixelPalette.ButtonLabelAmber,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = labelSize
+            )
+        }
     }
 }
 
@@ -1123,93 +1160,107 @@ private fun TransportButtonsRow(
     onEject: () -> Unit,
     onSeek: (Long) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // 1. SKIP PREV (|◀◀)
-        PixelArtButton(
-            unpressedResId = R.drawable.btn_skip_prev_unpressed,
-            pressedResId = R.drawable.btn_skip_prev_pressed,
-            width = 46.dp,
-            height = 50.dp,
-            onDownPress = { feedback.onTick() },
-            onClick = { onSkipPrev() }
-        )
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val rowW = maxWidth
+        // Exact button proportions from master 1024x460 design (total span = 482px, sum of widths = 455px)
+        val wSkip = rowW * (73f / 482f)
+        val wRewind = rowW * (72f / 482f)
+        val wPlay = rowW * (94f / 482f)
+        val wFastFwd = rowW * (73f / 482f)
+        val wSkipNext = rowW * (73f / 482f)
+        val wEject = rowW * (70f / 482f)
 
-        // 2. REWIND (◀◀)
-        PixelArtButton(
-            unpressedResId = R.drawable.btn_rewind_unpressed,
-            pressedResId = R.drawable.btn_rewind_pressed,
-            width = 46.dp,
-            height = 50.dp,
-            onDownPress = { feedback.onRewindPress() },
-            onHoldRepeat = {
-                feedback.onTick()
-                onSeek(-5_000L)
-            },
-            onClick = {
-                onSeek(-10_000L)
-            }
-        )
+        val hStd = rowW * (80f / 482f)
+        val hPlay = rowW * (82f / 482f)
 
-        // 3. PLAY (▶) - latched down when playing!
-        PixelArtButton(
-            unpressedResId = R.drawable.btn_play_unpressed,
-            pressedResId = R.drawable.btn_play_pressed,
-            isLatched = isPlaying,
-            width = 58.dp,
-            height = 51.dp,
-            onDownPress = { feedback.onPlayPress() },
-            onClick = { onPlay() }
-        )
-
-        // 4. FAST FORWARD (▶▶)
-        PixelArtButton(
-            unpressedResId = R.drawable.btn_fast_fwd_unpressed,
-            pressedResId = R.drawable.btn_fast_fwd_pressed,
-            width = 46.dp,
-            height = 50.dp,
-            onDownPress = { feedback.onRewindPress() },
-            onHoldRepeat = {
-                feedback.onTick()
-                onSeek(5_000L)
-            },
-            onClick = {
-                onSeek(10_000L)
-            }
-        )
-
-        // 5. SKIP NEXT (▶▶|)
-        PixelArtButton(
-            unpressedResId = R.drawable.btn_skip_next_unpressed,
-            pressedResId = R.drawable.btn_skip_next_pressed,
-            width = 46.dp,
-            height = 50.dp,
-            onDownPress = { feedback.onTick() },
-            onClick = { onSkip() }
-        )
-
-        // 6. STOP (■) when running / EJECT (⏏) when stopped!
-        if (isTapeRunning) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 1. SKIP PREV (|◀◀)
             PixelArtButton(
-                unpressedResId = R.drawable.btn_stop_unpressed,
-                pressedResId = R.drawable.btn_stop_pressed,
-                width = 45.dp,
-                height = 50.dp,
-                onDownPress = { feedback.onStopPress() },
-                onClick = { onStop() }
+                unpressedResId = R.drawable.btn_skip_prev_unpressed,
+                pressedResId = R.drawable.btn_skip_prev_pressed,
+                width = wSkip,
+                height = hStd,
+                onDownPress = { feedback.onTick() },
+                onClick = { onSkipPrev() }
             )
-        } else {
+
+            // 2. REWIND (◀◀)
             PixelArtButton(
-                unpressedResId = R.drawable.btn_eject_unpressed,
-                pressedResId = R.drawable.btn_eject_pressed,
-                width = 45.dp,
-                height = 50.dp,
-                onDownPress = { feedback.onTapeLatch() },
-                onClick = { onEject() }
+                unpressedResId = R.drawable.btn_rewind_unpressed,
+                pressedResId = R.drawable.btn_rewind_pressed,
+                width = wRewind,
+                height = hStd,
+                onDownPress = { feedback.onRewindPress() },
+                onHoldRepeat = {
+                    feedback.onTick()
+                    onSeek(-5_000L)
+                },
+                onClick = {
+                    onSeek(-10_000L)
+                }
             )
+
+            // 3. PLAY (▶) - latched down when playing!
+            PixelArtButton(
+                unpressedResId = R.drawable.btn_play_unpressed,
+                pressedResId = R.drawable.btn_play_pressed,
+                isLatched = isPlaying,
+                width = wPlay,
+                height = hPlay,
+                onDownPress = { feedback.onPlayPress() },
+                onClick = { onPlay() }
+            )
+
+            // 4. FAST FORWARD (▶▶)
+            PixelArtButton(
+                unpressedResId = R.drawable.btn_fast_fwd_unpressed,
+                pressedResId = R.drawable.btn_fast_fwd_pressed,
+                width = wFastFwd,
+                height = hStd,
+                onDownPress = { feedback.onRewindPress() },
+                onHoldRepeat = {
+                    feedback.onTick()
+                    onSeek(5_000L)
+                },
+                onClick = {
+                    onSeek(10_000L)
+                }
+            )
+
+            // 5. SKIP NEXT (▶▶|)
+            PixelArtButton(
+                unpressedResId = R.drawable.btn_skip_next_unpressed,
+                pressedResId = R.drawable.btn_skip_next_pressed,
+                width = wSkipNext,
+                height = hStd,
+                onDownPress = { feedback.onTick() },
+                onClick = { onSkip() }
+            )
+
+            // 6. STOP (■) when running / EJECT (⏏) when stopped!
+            if (isTapeRunning) {
+                PixelArtButton(
+                    unpressedResId = R.drawable.btn_stop_unpressed,
+                    pressedResId = R.drawable.btn_stop_pressed,
+                    width = wEject,
+                    height = hStd,
+                    onDownPress = { feedback.onStopPress() },
+                    onClick = { onStop() }
+                )
+            } else {
+                PixelArtButton(
+                    unpressedResId = R.drawable.btn_eject_unpressed,
+                    pressedResId = R.drawable.btn_eject_pressed,
+                    width = wEject,
+                    height = hStd,
+                    onDownPress = { feedback.onTapeLatch() },
+                    onClick = { onEject() }
+                )
+            }
         }
     }
 }
@@ -1219,11 +1270,13 @@ private fun SwitchesRow(
     isShuffleOn: Boolean,
     isRepeatOn: Boolean,
     feedback: MechanicalFeedback,
+    switchWidth: androidx.compose.ui.unit.Dp = 46.dp,
+    switchHeight: androidx.compose.ui.unit.Dp = 24.dp,
     onShuffleToggle: () -> Unit,
     onRepeatToggle: () -> Unit
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // SHUFFLE SWITCH
@@ -1239,8 +1292,8 @@ private fun SwitchesRow(
                 isOn = isShuffleOn,
                 offResId = R.drawable.switch_shuffle_off,
                 onResId = R.drawable.switch_shuffle_on,
-                width = 44.dp,
-                height = 23.dp,
+                width = switchWidth,
+                height = switchHeight,
                 onToggle = {
                     feedback.onTick()
                     onShuffleToggle()
@@ -1261,8 +1314,8 @@ private fun SwitchesRow(
                 isOn = isRepeatOn,
                 offResId = R.drawable.switch_repeat_off,
                 onResId = R.drawable.switch_repeat_on,
-                width = 44.dp,
-                height = 23.dp,
+                width = switchWidth,
+                height = switchHeight,
                 onToggle = {
                     feedback.onTick()
                     onRepeatToggle()

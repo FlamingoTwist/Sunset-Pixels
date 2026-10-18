@@ -35,11 +35,18 @@ fun LcdDisplay(
     timeText: String,
     statusText: String
 ) {
-    Box(
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(936f / 401f)
+            .aspectRatio(392f / 163f)
     ) {
+        val lcdW = maxWidth
+        val lcdH = maxHeight
+        val padH = lcdW * 0.056f
+        val padV = lcdH * 0.135f
+        val baseFontSize = (lcdH.value * 0.112f).coerceIn(10.5f, 15.5f).sp
+        val titleFontSize = (lcdH.value * 0.120f).coerceIn(11.5f, 16.5f).sp
+
         // Authentic sliced mint-green LCD screen background
         Image(
             painter = painterResource(id = R.drawable.lcd_screen_bg),
@@ -52,7 +59,7 @@ fun LcdDisplay(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = padH, vertical = padV),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // Line 1: Status & Source
@@ -65,14 +72,16 @@ fun LcdDisplay(
                     color = PixelPalette.LcdPixels,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp
+                    fontSize = baseFontSize,
+                    maxLines = 1
                 )
                 Text(
                     text = "SRC: $source",
                     color = PixelPalette.LcdPixels,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp
+                    fontSize = baseFontSize,
+                    maxLines = 1
                 )
             }
 
@@ -82,7 +91,7 @@ fun LcdDisplay(
                 color = PixelPalette.LcdPixels,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Black,
-                fontSize = 11.sp,
+                fontSize = titleFontSize,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -93,7 +102,7 @@ fun LcdDisplay(
                 color = PixelPalette.LcdPixels,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
-                fontSize = 10.sp,
+                fontSize = baseFontSize,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -108,14 +117,16 @@ fun LcdDisplay(
                     color = PixelPalette.LcdPixels,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp
+                    fontSize = baseFontSize,
+                    maxLines = 1
                 )
                 Text(
                     text = "BATT: 98%",
                     color = PixelPalette.LcdPixels,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp
+                    fontSize = baseFontSize,
+                    maxLines = 1
                 )
             }
         }
