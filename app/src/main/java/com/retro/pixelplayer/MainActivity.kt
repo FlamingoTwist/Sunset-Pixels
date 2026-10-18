@@ -326,7 +326,7 @@ fun RetroAppRoot(
             // Play official authentic track directly through Spotify App Remote!
             exoPlayer.stop()
             isSpotifyRemotePlaying = true
-            isPlaying = isSpotifyRemoteConnected && (spotifyPlayerState?.isPaused == false)
+            isPlaying = true
             isPaused = false
             currentPositionMs = 0L
             totalDurationMs = track.durationMs.coerceAtLeast(30_000L)
@@ -418,11 +418,11 @@ fun RetroAppRoot(
     }
 
     // Timer updater coroutine for LCD display (smooth 250ms updates for responsive Fast-Forward/Rewind & reel rotation)
-    LaunchedEffect(isPlaying, isPaused, isSpotifyRemotePlaying, isSpotifyRemoteConnected, spotifyPlayerState?.isPaused) {
+    LaunchedEffect(isPlaying, isPaused, isSpotifyRemotePlaying) {
         while (isPlaying && !isPaused) {
             if (isSpotifyRemotePlaying) {
                 delay(250)
-                if (isPlaying && !isPaused && isSpotifyRemoteConnected && (spotifyPlayerState?.isPaused == false)) {
+                if (isPlaying && !isPaused) {
                     currentPositionMs = (currentPositionMs + 250L).coerceAtMost(totalDurationMs)
                 }
             } else {
@@ -432,6 +432,31 @@ fun RetroAppRoot(
                     totalDurationMs = dur
                 }
                 delay(250)
+            }
+        }
+    }
+
+    // Authoritative playback sync loop for Spotify tracks via Web API (when App Remote IPC is unlinked)
+    LaunchedEffect(isSpotifyRemotePlaying, isPlaying, isPaused) {
+        while (isSpotifyRemotePlaying && isPlaying && !isPaused) {
+            delay(1500)
+            if (isSpotifyRemotePlaying && isPlaying && !isPaused && !isSpotifyRemoteConnected) {
+                val webState = SpotifyManager.getPlaybackState(context)
+                if (webState != null) {
+                    isPlaying = webState.isPlaying
+                    isPaused = !webState.isPlaying
+                    currentPositionMs = webState.progressMs
+                    if (webState.durationMs > 0) {
+                        totalDurationMs = webState.durationMs
+                    }
+                    val webUri = webState.trackUri
+                    if (!webUri.isNullOrBlank() && activeTracks.isNotEmpty()) {
+                        val matchIdx = activeTracks.indexOfFirst { it.spotifyUri == webUri }
+                        if (matchIdx >= 0 && matchIdx != activeTrackIndex) {
+                            activeTrackIndex = matchIdx
+                        }
+                    }
+                }
             }
         }
     }

@@ -30,6 +30,20 @@ data class SpotifySyncResult(
     val statusMessage: String
 )
 
+data class SpotifyDevice(
+    val id: String,
+    val name: String,
+    val type: String,
+    val isActive: Boolean
+)
+
+data class SpotifyPlaybackState(
+    val isPlaying: Boolean,
+    val progressMs: Long,
+    val durationMs: Long,
+    val trackUri: String?
+)
+
 object SpotifyManager {
 
     private const val PREFS_NAME = "pixel_spotify_prefs"
@@ -1133,8 +1147,72 @@ object SpotifyManager {
     // SPOTIFY CONNECT PLAYBACK CONTROLS
     // =========================================================================
 
+    suspend fun getAvailableDevices(context: Context): List<SpotifyDevice> = withContext(Dispatchers.IO) {
+        val token = getValidAccessToken(context) ?: return@withContext emptyList()
+        try {
+            val json = getJson("https://api.spotify.com/v1/me/player/devices", token)
+            val arr = json.optJSONArray("devices") ?: return@withContext emptyList()
+            val list = mutableListOf<SpotifyDevice>()
+            for (i in 0 until arr.length()) {
+                val d = arr.optJSONObject(i) ?: continue
+                val id = d.optString("id", "")
+                if (id.isNotBlank()) {
+                    list.add(
+                        SpotifyDevice(
+                            id = id,
+                            name = d.optString("name", "Device"),
+                            type = d.optString("type", ""),
+                            isActive = d.optBoolean("is_active", false)
+                        )
+                    )
+                }
+            }
+            list
+        } catch (e: Exception) {
+            android.util.Log.w("SpotifyDevices", "Could not fetch devices: ${e.message}")
+            emptyList()
+        }
+    }
+
+    suspend fun getPlaybackState(context: Context): SpotifyPlaybackState? = withContext(Dispatchers.IO) {
+        val token = getValidAccessToken(context) ?: return@withContext null
+        try {
+            val conn = (URL("https://api.spotify.com/v1/me/player").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Authorization", "Bearer $token")
+                connectTimeout = 4000
+                readTimeout = 4000
+            }
+            val status = conn.responseCode
+            if (status == 204 || status !in 200..299) {
+                conn.disconnect()
+                return@withContext null
+            }
+            val text = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            conn.disconnect()
+            if (text.isBlank()) return@withContext null
+
+            val obj = JSONObject(text)
+            val isPlaying = obj.optBoolean("is_playing", false)
+            val progressMs = obj.optLong("progress_ms", 0L)
+            val item = obj.optJSONObject("item")
+            val durationMs = item?.optLong("duration_ms", 0L) ?: 0L
+            val uri = item?.optString("uri", "")?.ifBlank { null }
+
+            SpotifyPlaybackState(
+                isPlaying = isPlaying,
+                progressMs = progressMs,
+                durationMs = durationMs,
+                trackUri = uri
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /**
-     * Triggers playback of a Spotify track via Spotify Connect Web API if an active session exists.
+     * Triggers playback of a Spotify track via Spotify Connect Web API.
+     * Automatically targets the device if no active playback session currently exists.
      */
     suspend fun playSpotifyTrack(context: Context, spotifyUri: String): Boolean = withContext(Dispatchers.IO) {
         val token = getValidAccessToken(context) ?: return@withContext false
@@ -1147,10 +1225,42 @@ object SpotifyManager {
                 }
             }.toString()
 
-            val code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/play", token, body)
+            // 1. First attempt: standard play request to active device
+            var code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/play", token, body)
             if (code in 200..299) {
                 return@withContext true
             }
+
+            // 2. If no active session (404), target available devices (e.g. Smartphone / Pixel)
+            val devices = getAvailableDevices(context)
+            val target = devices.firstOrNull { it.isActive }
+                ?: devices.firstOrNull { it.type.equals("Smartphone", ignoreCase = true) }
+                ?: devices.firstOrNull()
+
+            if (target != null) {
+                code = sendPlayerRequest(
+                    "PUT",
+                    "https://api.spotify.com/v1/me/player/play?device_id=${target.id}",
+                    token,
+                    body
+                )
+                if (code in 200..299) {
+                    return@withContext true
+                }
+            }
+
+            // 3. Fallback: Wake up Spotify via Intent
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(spotifyUri)).apply {
+                    setPackage("com.spotify.music")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+                return@withContext true
+            } catch (e: Exception) {
+                android.util.Log.w("SpotifyPlay", "Intent fallback error: ${e.message}")
+            }
+
             false
         } catch (_: Exception) {
             false
@@ -1170,8 +1280,19 @@ object SpotifyManager {
     suspend fun resumeSpotify(context: Context): Boolean = withContext(Dispatchers.IO) {
         val token = getValidAccessToken(context) ?: return@withContext false
         try {
-            val code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/play", token, null)
-            code in 200..299
+            var code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/play", token, null)
+            if (code in 200..299) return@withContext true
+
+            val devices = getAvailableDevices(context)
+            val target = devices.firstOrNull { it.isActive }
+                ?: devices.firstOrNull { it.type.equals("Smartphone", ignoreCase = true) }
+                ?: devices.firstOrNull()
+
+            if (target != null) {
+                code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/play?device_id=${target.id}", token, null)
+                if (code in 200..299) return@withContext true
+            }
+            false
         } catch (_: Exception) {
             false
         }
