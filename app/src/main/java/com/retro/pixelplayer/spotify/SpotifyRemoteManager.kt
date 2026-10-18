@@ -41,9 +41,6 @@ object SpotifyRemoteManager {
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
-    private val _lastError = MutableStateFlow<String?>(null)
-    val lastError: StateFlow<String?> = _lastError.asStateFlow()
-
     @Volatile
     private var isConnecting = false
     private var pendingPlayUri: String? = null
@@ -65,13 +62,6 @@ object SpotifyRemoteManager {
         onConnected: (() -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null
     ) {
-        if (!isInstalled(context)) {
-            _isConnected.value = false
-            _lastError.value = "SPOTIFY NOT INSTALLED"
-            onError?.invoke(IllegalStateException("Spotify is not installed"))
-            return
-        }
-
         if (appRemote?.isConnected == true) {
             _isConnected.value = true
             onConnected?.invoke()
@@ -92,7 +82,6 @@ object SpotifyRemoteManager {
                 isConnecting = false
                 appRemote = remote
                 _isConnected.value = true
-                _lastError.value = null
                 Log.d(TAG, "SpotifyAppRemote successfully bound in background!")
 
                 // Subscribe to real-time player state updates (position, duration, isPaused, track info)
@@ -119,7 +108,6 @@ object SpotifyRemoteManager {
             override fun onFailure(throwable: Throwable) {
                 isConnecting = false
                 _isConnected.value = false
-                _lastError.value = "SPOTIFY DISCONNECTED"
                 Log.w(TAG, "SpotifyAppRemote background bind failure: ${throwable.message}")
                 onError?.invoke(throwable)
             }
@@ -129,34 +117,16 @@ object SpotifyRemoteManager {
     /**
      * Plays the authentic track without switching apps.
      */
-    fun play(
-        context: Context,
-        spotifyUri: String,
-        onError: ((String) -> Unit)? = null
-    ) {
-        if (!isInstalled(context)) {
-            _lastError.value = "SPOTIFY NOT INSTALLED"
-            onError?.invoke("SPOTIFY NOT INSTALLED")
-            return
-        }
-
+    fun play(context: Context, spotifyUri: String) {
         val remote = appRemote
         if (remote != null && remote.isConnected) {
             remote.playerApi.play(spotifyUri)
                 .setErrorCallback { error ->
                     Log.w(TAG, "playerApi.play error: ${error.message}")
-                    _lastError.value = "SPOTIFY PLAY ERROR"
-                    onError?.invoke(error.message ?: "PLAYBACK FAILED")
                 }
         } else {
             pendingPlayUri = spotifyUri
-            connect(
-                context = context,
-                onError = { err ->
-                    _lastError.value = "SPOTIFY OFFLINE"
-                    onError?.invoke(err.message ?: "SPOTIFY DISCONNECTED")
-                }
-            )
+            connect(context)
         }
 
         // Parallel Web API command (executed silently in background with ZERO app switch)
