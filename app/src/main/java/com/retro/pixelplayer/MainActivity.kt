@@ -303,7 +303,15 @@ fun RetroAppRoot(
                 val streamUri = SpotifyManager.resolveTrackStreamUri(track)
                 if (streamUri != null) {
                     isSpotifyRemotePlaying = false
-                    val mediaItem = MediaItem.fromUri(streamUri)
+                    val uriStr = streamUri.toString()
+                    val mediaItem = if (uriStr.contains(".m3u8")) {
+                        MediaItem.Builder()
+                            .setUri(streamUri)
+                            .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
+                            .build()
+                    } else {
+                        MediaItem.fromUri(streamUri)
+                    }
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
                     exoPlayer.play()
@@ -327,6 +335,21 @@ fun RetroAppRoot(
             override fun onIsPlayingChanged(playing: Boolean) {
                 if (playing) {
                     isPlaying = true
+                }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                android.util.Log.w("PixelPlayer", "ExoPlayer error: ${error.message}")
+                val tr = currentTape?.tracks?.getOrNull(activeTrackIndex) ?: return
+                SpotifyManager.invalidateCachedStream(tr)
+                coroutineScope.launch {
+                    val fallbackUri = SpotifyManager.resolveFallbackPreviewUri(tr)
+                    if (fallbackUri != null) {
+                        val item = MediaItem.fromUri(fallbackUri)
+                        exoPlayer.setMediaItem(item)
+                        exoPlayer.prepare()
+                        exoPlayer.play()
+                    }
                 }
             }
 

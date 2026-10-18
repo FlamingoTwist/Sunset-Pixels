@@ -48,15 +48,18 @@ This document captures the architectural nuances, non-obvious workarounds, and v
 ## 3. Critical Nuances & Gotchas
 
 ### A. Spotify Playback: Full-Length Audio Streams (Not 30s Previews)
-1. **Why Spotify Web API / Embed Previews Are Insufficient**:
+1. **Why Spotify Web API / Embed Previews & Raw YouTube InnerTube Are Insufficient**:
    - Spotify's `/v1/me/player/play` requires both an active external Spotify client daemon and Spotify Premium.
    - Spotify's `audioPreview` (`p.scdn.co/mp3-preview/...`) and iTunes `previewUrl` only provide **30-second sample clips**.
+   - Direct YouTube InnerTube (`googlevideo.com`) URLs without a browser BotGuard `poToken` reject non-`Range` initial `ExoPlayer` requests with `403 Forbidden` at byte 0 and throttle/403 after ~800KB.
 2. **How Full-Length Playback Works (`SpotifyManager.resolveFullLengthAudioStream`)**:
-   - When playing a Spotify track (`track.contentUri.startsWith("spotify:")`), `playTrack()` in `MainActivity.kt` calls `SpotifyManager.resolveFullLengthAudioStream(artist, title, durationMs)`.
-   - This queries `youtubei/v1/search` (`"$artist - $title Official Audio"`), scores candidates by duration proximity to `track.durationMs` (penalizing shorts/live/remix mismatches unless requested), and calls `youtubei/v1/player` using the `IOS` (`20.03.02`) client profile to extract the direct `itag=140` (`audio/mp4`, 128kbps AAC) stream URL.
-   - **CRITICAL**: Do **NOT** overwrite `Track.contentUri` with 30-second `preview_url` values during library sync; leave `contentUri` as `spotify:track:<id>` so `playTrack()` resolves the full-length stream (and caches it in `resolvedStreamCache`).
-   - **CRITICAL**: `ExoPlayer` in `MainActivity.kt` **must** be initialized with `DefaultHttpDataSource.Factory().setUserAgent(SpotifyManager.STREAM_USER_AGENT).setAllowCrossProtocolRedirects(true)` because `googlevideo.com` stream URLs validate the `User-Agent` header (`com.google.ios.youtube/20.03.02 ...`) and reject `HEAD` requests (only `GET` requests work).
-   - **Next-Track Prefetching**: `playTrack()` launches a background coroutine to pre-resolve `(activeTrackIndex + 1) % activeTracks.size` into `resolvedStreamCache` so track transitions are gapless.
+   - When playing a Spotify track (`track.contentUri.startsWith("spotify:")`), `playTrack()` in `MainActivity.kt` calls `SpotifyManager.resolveTrackStreamUri(track)` -> `resolveFullLengthAudioStream(artist, title, durationMs)`.
+   - **Tier 1 (`resolveSoundCloudStream`)**: Queries SoundCloud API v2 (`/search/tracks`), filters out 30s `SNIP` previews and DRM `cbc-encrypted-hls` streams, scores candidates by duration proximity to `track.durationMs` (penalizing remixes/mashups/nightcore/covers unless in the original title), and resolves the unencrypted progressive MP3 or fMP4 HLS (`.m3u8`) stream URL (`https://playback.media-streaming.soundcloud.cloud/.../playlist.m3u8?...`). Automatically refreshes `soundCloudClientId` from SoundCloud's web asset bundles if `401`/`403` occurs.
+   - **Tier 2 (`resolveJioSaavnStream`)**: Queries `jiosaavn.com/api.php`, filters out karaoke/tribute tracks, verifies artist & duration match, and decrypts `encrypted_media_url` using `DES/ECB/PKCS5Padding` (`key = "38346591"`) into a direct `320kbps` AAC `.mp4` CDN URL (`https://aac.saavncdn.com/..._320.mp4`).
+   - **Tier 3 (`onPlayerError` Recovery)**: If a stream ever fails in `ExoPlayer`, `onPlayerError` invalidates the cache and falls back to `resolveFallbackPreviewUri(track)` so playback never stalls silently at `00:00`.
+   - **CRITICAL**: Include `androidx.media3:media3-exoplayer-hls` in `app/build.gradle.kts` and pass `MimeTypes.APPLICATION_M3U8` when constructing `MediaItem`s for `.m3u8` URLs so `ExoPlayer` plays HLS streams natively.
+   - **CRITICAL**: Do **NOT** overwrite `Track.contentUri` with 30-second `preview_url` values during library sync; leave `contentUri` as `spotify:track:<id>` so `playTrack()` resolves the full-length stream.
+   - **Next-Track Prefetching**: `playTrack()` launches a background coroutine to pre-resolve `(activeTrackIndex + 1) % activeTracks.size` into `resolvedStreamCache` (cached for 10 minutes) so track transitions are gapless.
 
 ### B. Spotify Feb 2026 Web API Restrictions & Embed Scraper Fallback
 - Spotify's Feb 2026 Development Mode changes restricted several endpoints (`/v1/playlists/{id}/tracks` can return `403 Forbidden` or redact track payloads for non-owned/algorithmic playlists, and `/items` replaces `/tracks` in newer endpoints).

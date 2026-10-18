@@ -44,7 +44,10 @@ object SpotifyManager {
 
     const val REDIRECT_URI = "pixelplayer://spotify-callback"
     const val DEFAULT_CLIENT_ID = "a65f41a4d09c4187af8257c4903b991a"
-    const val STREAM_USER_AGENT = "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)"
+    const val STREAM_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+
+    @Volatile
+    private var soundCloudClientId: String = "tHVbSbDP4TaoMbPppngv6Tdry83vNbMQ"
 
     private val resolvedStreamCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Uri, Long>>()
 
@@ -811,8 +814,13 @@ object SpotifyManager {
         return result
     }
 
+    fun invalidateCachedStream(track: Track) {
+        val cacheKey = "${track.artist.lowercase().trim()}|${track.title.lowercase().trim()}"
+        resolvedStreamCache.remove(cacheKey)
+    }
+
     /**
-     * Resolves a FULL-LENGTH playable HTTP audio stream (128kbps AAC M4A) for a Spotify track
+     * Resolves a FULL-LENGTH playable HTTP/HLS audio stream for a Spotify track
      * so ExoPlayer plays the entire song from start to finish (never truncated at 30 seconds).
      */
     suspend fun resolveTrackStreamUri(track: Track): Uri? = withContext(Dispatchers.IO) {
@@ -827,15 +835,19 @@ object SpotifyManager {
             return@withContext cached.first
         }
 
-        // 1. Primary: Resolve full-length audio stream via InnerTube iOS player pipeline
+        // 1. Primary: Resolve full-length audio stream (SoundCloud unencrypted HLS/MP3 + JioSaavn 320kbps M4A)
         val fullStreamUri = resolveFullLengthAudioStream(track.artist, track.title, track.durationMs)
         if (fullStreamUri != null) {
-            // Cache for 3 hours
-            resolvedStreamCache[cacheKey] = fullStreamUri to (System.currentTimeMillis() + 3 * 3600 * 1000L)
+            // Cache signed stream URL for 10 minutes
+            resolvedStreamCache[cacheKey] = fullStreamUri to (System.currentTimeMillis() + 10 * 60 * 1000L)
             return@withContext fullStreamUri
         }
 
-        // 2. Fallback: Spotify CDN embed stream if full-length lookup failed
+        // 2. Fallback: Spotify CDN embed stream / iTunes stream if full-length lookup failed
+        resolveFallbackPreviewUri(track)
+    }
+
+    suspend fun resolveFallbackPreviewUri(track: Track): Uri? = withContext(Dispatchers.IO) {
         val spUri = track.spotifyUri ?: track.contentUri.toString()
         val trackId = spUri.substringAfterLast("spotify:track:", "").trim()
         if (trackId.isNotEmpty() && !trackId.contains(":")) {
@@ -850,126 +862,236 @@ object SpotifyManager {
             } catch (_: Exception) {
             }
         }
-
+        try {
+            val cleanQuery = URLEncoder.encode("${track.artist} ${track.title}", "UTF-8")
+            val itunesStr = getRawString("https://itunes.apple.com/search?term=$cleanQuery&media=music&entity=song&limit=3")
+            val results = JSONObject(itunesStr).optJSONArray("results")
+            if (results != null && results.length() > 0) {
+                val preview = results.optJSONObject(0)?.optString("previewUrl", "") ?: ""
+                if (preview.startsWith("http")) {
+                    return@withContext Uri.parse(preview)
+                }
+            }
+        } catch (_: Exception) {
+        }
         null
     }
 
     /**
-     * Queries InnerTube search for "${artist} - ${title} Official Audio" and resolves the
-     * full-length 128kbps AAC audio/mp4 stream URL using the iOS player client.
+     * Resolves a full-length unencrypted audio stream via SoundCloud API v2 (progressive MP3 or
+     * unencrypted fMP4 HLS .m3u8) with fallback to JioSaavn 320kbps AAC MP4.
      */
     private fun resolveFullLengthAudioStream(artist: String, title: String, expectedDurationMs: Long): Uri? {
-        try {
-            val cleanQuery = "$artist - $title Official Audio"
-            val searchPayload = JSONObject().apply {
-                put("context", JSONObject().apply {
-                    put("client", JSONObject().apply {
-                        put("clientName", "WEB")
-                        put("clientVersion", "2.20250101.00.00")
-                        put("hl", "en")
-                        put("gl", "US")
-                    })
-                })
-                put("query", cleanQuery)
-            }.toString()
+        // Tier 1: SoundCloud v2 Full-Length Stream
+        val scUri = resolveSoundCloudStream(artist, title, expectedDurationMs, allowRefresh = true)
+        if (scUri != null) {
+            return scUri
+        }
 
-            val searchJsonStr = postRawJson(
-                urlString = "https://www.youtube.com/youtubei/v1/search?prettyPrint=false",
-                jsonBody = searchPayload,
-                userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        // Tier 2: JioSaavn 320kbps MP4 Stream (filtered for authentic artist matches)
+        val saavnUri = resolveJioSaavnStream(artist, title, expectedDurationMs)
+        if (saavnUri != null) {
+            return saavnUri
+        }
+
+        return null
+    }
+
+    private fun resolveSoundCloudStream(
+        artist: String,
+        title: String,
+        expectedDurationMs: Long,
+        allowRefresh: Boolean
+    ): Uri? {
+        try {
+            val cleanTitle = title
+                .replace(Regex("\\s*\\((feat\\.|ft\\.|with )[^)]*\\)", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("\\s*-\\s*(\\d{4}\\s*)?Remaster(ed)?.*", RegexOption.IGNORE_CASE), "")
+                .trim()
+            val query = URLEncoder.encode("$artist $cleanTitle", "UTF-8")
+            val clientId = soundCloudClientId
+            val searchUrl = "https://api-v2.soundcloud.com/search/tracks?q=$query&client_id=$clientId&limit=30"
+
+            val searchStr = try {
+                getRawString(searchUrl)
+            } catch (e: Exception) {
+                if (allowRefresh && (e.message?.contains("401") == true || e.message?.contains("403") == true)) {
+                    if (refreshSoundCloudClientId()) {
+                        return resolveSoundCloudStream(artist, title, expectedDurationMs, allowRefresh = false)
+                    }
+                }
+                return null
+            }
+
+            val collection = JSONObject(searchStr).optJSONArray("collection") ?: return null
+            val reqLower = "$artist $title".lowercase()
+            val artistLower = artist.lowercase().trim()
+            val titleLower = cleanTitle.lowercase().trim()
+
+            val penaltyWords = listOf(
+                "remix", "mashup", "bootleg", "nightcore", "hardstyle", "techno",
+                "flip", "slowed", "reverb", "cover", "karaoke", "instrumental",
+                "8d", "sped up", "gym motivation"
             )
 
-            val vidRegex = Regex("\"videoId\"\\s*:\\s*\"([a-zA-Z0-9_-]{11})\"")
-            val candidateVideoIds = vidRegex.findAll(searchJsonStr)
-                .map { it.groupValues[1] }
-                .distinct()
-                .take(4)
-                .toList()
+            var bestScore = -999999.0
+            var bestTranscodingUrl: String? = null
+            var bestTrackAuth: String? = null
+            var bestTrackLabel = ""
 
-            for (videoId in candidateVideoIds) {
-                val playerPayload = JSONObject().apply {
-                    put("context", JSONObject().apply {
-                        put("client", JSONObject().apply {
-                            put("clientName", "IOS")
-                            put("clientVersion", "20.03.02")
-                            put("deviceMake", "Apple")
-                            put("deviceModel", "iPhone16,2")
-                            put("osName", "iPhone")
-                            put("osVersion", "18.2.1.22C161")
-                            put("hl", "en")
-                            put("gl", "US")
-                        })
-                    })
-                    put("videoId", videoId)
-                }.toString()
+            for (i in 0 until collection.length()) {
+                val trackObj = collection.optJSONObject(i) ?: continue
+                val durMs = trackObj.optLong("duration", 0L)
+                val policy = trackObj.optString("policy", "")
+                if (durMs < 60_000L || policy == "SNIP" || policy == "BLOCK") continue
 
-                val playerStr = postRawJson(
-                    urlString = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-                    jsonBody = playerPayload,
-                    userAgent = STREAM_USER_AGENT
-                )
-                val playerJson = JSONObject(playerStr)
-                val status = playerJson.optJSONObject("playabilityStatus")?.optString("status", "") ?: ""
-                if (status != "OK") continue
+                val transcodings = trackObj.optJSONObject("media")?.optJSONArray("transcodings") ?: continue
+                var chosenTcUrl: String? = null
 
-                val adaptiveFormats = playerJson.optJSONObject("streamingData")?.optJSONArray("adaptiveFormats")
-                    ?: continue
+                // Prefer progressive MP3 first, then unencrypted HLS audio/mp4 or audio/mpeg
+                for (j in 0 until transcodings.length()) {
+                    val tc = transcodings.optJSONObject(j) ?: continue
+                    val fmt = tc.optJSONObject("format") ?: continue
+                    val proto = fmt.optString("protocol", "")
+                    val mime = fmt.optString("mime_type", "")
+                    val tcUrl = tc.optString("url", "")
+                    if (tcUrl.isBlank()) continue
 
-                var bestM4aUrl: String? = null
-                var bestFallbackAudioUrl: String? = null
-
-                for (i in 0 until adaptiveFormats.length()) {
-                    val fmt = adaptiveFormats.optJSONObject(i) ?: continue
-                    val url = fmt.optString("url", "")
-                    if (!url.startsWith("http")) continue
-                    val mime = fmt.optString("mimeType", "")
-                    val itag = fmt.optInt("itag", 0)
-
-                    if (itag == 140) {
-                        bestM4aUrl = url
+                    if (proto == "progressive" && mime.contains("mpeg")) {
+                        chosenTcUrl = tcUrl
                         break
-                    } else if (mime.startsWith("audio/mp4") && bestM4aUrl == null) {
-                        bestM4aUrl = url
-                    } else if (mime.startsWith("audio/") && bestFallbackAudioUrl == null) {
-                        bestFallbackAudioUrl = url
+                    } else if (proto == "hls" && !mime.contains("mpegurl") && (mime.contains("mp4") || mime.contains("mpeg") || mime.contains("ogg"))) {
+                        if (chosenTcUrl == null) {
+                            chosenTcUrl = tcUrl
+                        }
                     }
                 }
 
-                val chosenUrl = bestM4aUrl ?: bestFallbackAudioUrl
-                if (chosenUrl != null) {
-                    android.util.Log.d("SpotifySync", "Resolved FULL track stream for '$artist - $title' (videoId=$videoId)")
-                    return Uri.parse(chosenUrl)
+                if (chosenTcUrl == null) continue
+
+                val candTitle = trackObj.optString("title", "")
+                val candUser = trackObj.optJSONObject("user")?.optString("username", "") ?: ""
+                val candCombined = "$candTitle $candUser".lowercase()
+
+                val durDiffSec = kotlin.math.abs(durMs - expectedDurationMs) / 1000.0
+                var score = 1000.0 - (durDiffSec * 4.0)
+
+                if (durDiffSec <= 8.0) score += 150.0
+                if (candCombined.contains(artistLower)) score += 80.0
+                if (candCombined.contains(titleLower)) score += 100.0
+
+                for (pw in penaltyWords) {
+                    if (candCombined.contains(pw) && !reqLower.contains(pw)) {
+                        score -= 220.0
+                    }
+                }
+
+                if (score > bestScore) {
+                    bestScore = score
+                    bestTranscodingUrl = chosenTcUrl
+                    bestTrackAuth = trackObj.optString("track_authorization", "")
+                    bestTrackLabel = "$candTitle ($durMs ms)"
+                }
+            }
+
+            if (bestTranscodingUrl != null) {
+                val sep = if (bestTranscodingUrl.contains("?")) "&" else "?"
+                val authParam = if (!bestTrackAuth.isNullOrBlank()) {
+                    "&track_authorization=${URLEncoder.encode(bestTrackAuth, "UTF-8")}"
+                } else ""
+                val resolveUrl = "${bestTranscodingUrl}${sep}client_id=$clientId$authParam"
+                val streamJson = JSONObject(getRawString(resolveUrl))
+                val finalStreamUrl = streamJson.optString("url", "")
+                if (finalStreamUrl.startsWith("http")) {
+                    android.util.Log.d("SpotifySync", "Resolved full-length SoundCloud stream for '$artist - $title' -> $bestTrackLabel")
+                    return Uri.parse(finalStreamUrl)
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.w("SpotifySync", "Full stream resolution error for '$artist - $title': ${e.message}")
+            android.util.Log.w("SpotifySync", "SoundCloud stream resolve failed for '$artist - $title': ${e.message}")
         }
         return null
     }
 
-    private fun postRawJson(urlString: String, jsonBody: String, userAgent: String): String {
-        val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("User-Agent", userAgent)
-            connectTimeout = 6000
-            readTimeout = 6000
+    private fun refreshSoundCloudClientId(): Boolean {
+        return try {
+            val html = getRawString("https://soundcloud.com")
+            val scriptRegex = Regex("https://a-v2\\.sndcdn\\.com/assets/[^\"]+\\.js")
+            val scripts = scriptRegex.findAll(html).map { it.value }.toList()
+            val idRegex = Regex("client_id\\s*[:=]\\s*\"([a-zA-Z0-9]{32})\"")
+            for (scriptUrl in scripts.takeLast(5).reversed()) {
+                val js = getRawString(scriptUrl)
+                val match = idRegex.find(js)
+                if (match != null) {
+                    soundCloudClientId = match.groupValues[1]
+                    return true
+                }
+            }
+            false
+        } catch (_: Exception) {
+            false
         }
-        OutputStreamWriter(conn.outputStream).use { writer ->
-            writer.write(jsonBody)
-            writer.flush()
+    }
+
+    private fun resolveJioSaavnStream(artist: String, title: String, expectedDurationMs: Long): Uri? {
+        try {
+            val query = URLEncoder.encode("$artist $title", "UTF-8")
+            val url = "https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=8&p=1&q=$query"
+            val respStr = getRawString(url)
+            val results = JSONObject(respStr).optJSONArray("results") ?: return null
+            val artistLower = artist.lowercase().trim()
+
+            for (i in 0 until results.length()) {
+                val item = results.optJSONObject(i) ?: continue
+                val itemTitle = item.optString("title", "").lowercase()
+                val itemSub = item.optString("subtitle", "").lowercase()
+                if (itemTitle.contains("karaoke") || itemTitle.contains("originally performed") || itemTitle.contains("tribute")) {
+                    continue
+                }
+                val moreInfo = item.optJSONObject("more_info") ?: continue
+                val durSec = moreInfo.optLong("duration", 0L)
+                if (durSec < 60L) continue
+                val durDiffSec = kotlin.math.abs((durSec * 1000L) - expectedDurationMs) / 1000.0
+                if (durDiffSec > 25.0) continue
+
+                val artistsArr = moreInfo.optJSONObject("artistMap")?.optJSONArray("primary_artists")
+                var artistMatched = itemSub.contains(artistLower)
+                if (!artistMatched && artistsArr != null) {
+                    for (a in 0 until artistsArr.length()) {
+                        val aName = artistsArr.optJSONObject(a)?.optString("name", "")?.lowercase() ?: ""
+                        if (aName.contains(artistLower) || artistLower.contains(aName)) {
+                            artistMatched = true
+                            break
+                        }
+                    }
+                }
+                if (!artistMatched) continue
+
+                val encMedia = moreInfo.optString("encrypted_media_url", "")
+                if (encMedia.isNotBlank()) {
+                    val decryptedUrl = decryptSaavnMediaUrl(encMedia)
+                    if (decryptedUrl != null && decryptedUrl.startsWith("http")) {
+                        return Uri.parse(decryptedUrl)
+                    }
+                }
+            }
+        } catch (_: Exception) {
         }
-        val code = conn.responseCode
-        val reader = if (code in 200..299) {
-            BufferedReader(InputStreamReader(conn.inputStream))
-        } else {
-            conn.disconnect()
-            throw Exception("HTTP $code")
+        return null
+    }
+
+    private fun decryptSaavnMediaUrl(encryptedBase64: String): String? {
+        return try {
+            val keyBytes = "38346591".toByteArray(Charsets.UTF_8)
+            val secretKey = javax.crypto.spec.SecretKeySpec(keyBytes, "DES")
+            val cipher = javax.crypto.Cipher.getInstance("DES/ECB/PKCS5Padding")
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey)
+            val cipherBytes = Base64.decode(encryptedBase64.trim(), Base64.DEFAULT)
+            val plainBytes = cipher.doFinal(cipherBytes)
+            String(plainBytes, Charsets.UTF_8).replace("_96.mp4", "_320.mp4")
+        } catch (_: Exception) {
+            null
         }
-        val text = reader.use { it.readText() }
-        conn.disconnect()
-        return text
     }
 
     private fun getRawString(urlString: String): String {
