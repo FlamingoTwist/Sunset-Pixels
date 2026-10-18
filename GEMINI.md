@@ -17,12 +17,13 @@ This document captures the architectural nuances, non-obvious workarounds, and v
   ```
 - **Distributable APK Convention**:
   Whenever shipping changes to GitHub (`https://github.com/FlamingoTwist/Sunset-Pixels`), always:
-  1. Copy `app\build\outputs\apk\debug\app-debug.apk` to `Sunset-Pixels.apk` in the repo root.
-  2. Force-add `Sunset-Pixels.apk` (`git add -f Sunset-Pixels.apk` since `*.apk` is in `.gitignore`).
+  1. Copy `app\build\outputs\apk\debug\app-debug.apk` to `Sunset-Pixels.apk` and `Sunset-Soundwaves.apk` in the repo root.
+  2. Force-add both APKs (`git add -f Sunset-Pixels.apk Sunset-Soundwaves.apk` since `*.apk` is in `.gitignore`).
   3. Update the GitHub Release asset:
      ```powershell
-     gh release upload v0.1.0 "s:\AmosApps\Music Player\Sunset-Pixels.apk" --clobber
+     gh release upload v0.2.0 "s:\AmosApps\Music Player\Sunset-Pixels.apk" "s:\AmosApps\Music Player\Sunset-Soundwaves.apk" --clobber
      ```
+  *Current Stable Release*: `v0.2.0` (all subsequent development targets `0.3`).
 
 ---
 
