@@ -274,6 +274,32 @@ fun RetroAppRoot(
     var isSpotifyRemotePlaying by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
+    var isTapeShuddering by remember { mutableStateOf(false) }
+    var lcdErrorMessage by remember { mutableStateOf<String?>(null) }
+    var playSessionId by remember { mutableIntStateOf(0) }
+
+    fun triggerTapePlaybackError(message: String) {
+        isPlaying = false
+        isPaused = false
+        isSpotifyRemotePlaying = false
+        currentPositionMs = 0L
+        exoPlayer.stop()
+
+        lcdErrorMessage = message
+        isTapeShuddering = true
+
+        coroutineScope.launch {
+            feedback?.onTick()
+            delay(120)
+            feedback?.onTick()
+            delay(600)
+            isTapeShuddering = false
+            delay(3500)
+            if (lcdErrorMessage == message) {
+                lcdErrorMessage = null
+            }
+        }
+    }
 
     val spotifyPlayerState by SpotifyRemoteManager.playerState.collectAsState()
     val isSpotifyRemoteConnected by SpotifyRemoteManager.isConnected.collectAsState()
@@ -324,6 +350,12 @@ fun RetroAppRoot(
         val isSpotifyTrack = (scheme == "spotify") || (track.spotifyUri != null) || (currentTape?.isSpotify == true)
 
         if (isSpotifyTrack) {
+            // Check if Spotify is installed
+            if (!SpotifyRemoteManager.isInstalled(context)) {
+                triggerTapePlaybackError("NO SPOTIFY APP")
+                return
+            }
+
             // Play official authentic track directly through Spotify App Remote!
             exoPlayer.stop()
             isSpotifyRemotePlaying = true
@@ -336,7 +368,25 @@ fun RetroAppRoot(
                 ?: if (scheme == "spotify") track.contentUri.toString()
                 else "spotify:track:${track.id}"
 
-            SpotifyRemoteManager.play(context, uriToPlay)
+            val thisSession = ++playSessionId
+            SpotifyRemoteManager.play(
+                context = context,
+                spotifyUri = uriToPlay,
+                onError = { errMsg ->
+                    triggerTapePlaybackError(errMsg)
+                }
+            )
+
+            // Watchdog: If Spotify doesn't respond or connect within 3.5 seconds, halt and warn user
+            coroutineScope.launch {
+                delay(3500)
+                if (playSessionId == thisSession && isSpotifyRemotePlaying && isPlaying && !isPaused) {
+                    val state = SpotifyRemoteManager.playerState.value
+                    if (state == null || state.isPaused) {
+                        triggerTapePlaybackError("SPOTIFY NOT RUNNING")
+                    }
+                }
+            }
         } else {
             // Local device audio track
             if (isSpotifyRemotePlaying) {
@@ -419,12 +469,17 @@ fun RetroAppRoot(
     }
 
     // Timer updater coroutine for LCD display (smooth 250ms updates for responsive Fast-Forward/Rewind & reel rotation)
-    LaunchedEffect(isPlaying, isPaused, isSpotifyRemotePlaying) {
+    LaunchedEffect(isPlaying, isPaused, isSpotifyRemotePlaying, isSpotifyRemoteConnected, spotifyPlayerState) {
         while (isPlaying && !isPaused) {
             if (isSpotifyRemotePlaying) {
-                delay(250)
-                if (isPlaying && !isPaused) {
-                    currentPositionMs = (currentPositionMs + 250L).coerceAtMost(totalDurationMs)
+                // For Spotify, only advance timer if Spotify is actually connected and actively reporting playing
+                if (isSpotifyRemoteConnected && spotifyPlayerState?.isPaused == false) {
+                    delay(250)
+                    if (isPlaying && !isPaused) {
+                        currentPositionMs = (currentPositionMs + 250L).coerceAtMost(totalDurationMs)
+                    }
+                } else {
+                    delay(250)
                 }
             } else {
                 currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -518,6 +573,8 @@ fun RetroAppRoot(
                     currentPositionMs = currentPositionMs,
                     totalDurationMs = totalDurationMs,
                     feedback = feedback,
+                    isShuddering = isTapeShuddering,
+                    errorMessage = lcdErrorMessage,
                     onSpotifyClicked = { showSpotifyDialog = true },
                     onPlay = {
                         if (isTapeInserted) {
@@ -662,6 +719,8 @@ fun DeckScreen(
     currentPositionMs: Long,
     totalDurationMs: Long,
     feedback: MechanicalFeedback? = null,
+    isShuddering: Boolean = false,
+    errorMessage: String? = null,
     onSpotifyClicked: () -> Unit = {},
     onPlay: () -> Unit,
     onPause: () -> Unit,
@@ -834,6 +893,7 @@ fun DeckScreen(
                             shellColor = tapeShellColor,
                             isHomeMade = currentTape?.isHomeMade ?: false,
                             artworkBitmap = currentTape?.artworkBitmap,
+                            isShuddering = isShuddering,
                             onEjectOrInsert = { onTapeDeckTapped() }
                         )
 
@@ -873,7 +933,8 @@ fun DeckScreen(
                                 else -> "ALBUM"
                             },
                             timeText = formattedTime,
-                            statusText = statusText
+                            statusText = statusText,
+                            errorMessage = errorMessage
                         )
 
                         // 4. Transport Buttons Bank + Labels
@@ -1018,6 +1079,7 @@ fun DeckScreen(
                             shellColor = tapeShellColor,
                             isHomeMade = currentTape?.isHomeMade ?: false,
                             artworkBitmap = currentTape?.artworkBitmap,
+                            isShuddering = isShuddering,
                             onEjectOrInsert = { onTapeDeckTapped() }
                         )
 
@@ -1040,7 +1102,8 @@ fun DeckScreen(
                                 else -> "ALBUM"
                             },
                             timeText = formattedTime,
-                            statusText = statusText
+                            statusText = statusText,
+                            errorMessage = errorMessage
                         )
 
                         // Shuffle & Repeat Rocker Switches

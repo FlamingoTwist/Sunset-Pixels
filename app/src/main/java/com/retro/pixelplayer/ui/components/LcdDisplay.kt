@@ -34,7 +34,8 @@ fun LcdDisplay(
     artist: String,
     source: String,
     timeText: String,
-    statusText: String
+    statusText: String,
+    errorMessage: String? = null
 ) {
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = modifier
@@ -63,50 +64,104 @@ fun LcdDisplay(
                 .padding(horizontal = padH, vertical = padV),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Line 1: Status & Source
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+            if (errorMessage != null) {
+                // High-visibility mechanical error notice
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "STATUS: ERROR ⚠",
+                        color = PixelPalette.LcdPixels,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        fontSize = baseFontSize,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "SRC: $source",
+                        color = PixelPalette.LcdPixels,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = baseFontSize,
+                        maxLines = 1
+                    )
+                }
+
                 Text(
-                    text = "STATUS: $statusText",
+                    text = "◆ $errorMessage ◆",
+                    color = PixelPalette.LcdPixels,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black,
+                    fontSize = titleFontSize,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = "CHECK SPOTIFY APP / OPEN SPOTIFY",
+                    color = PixelPalette.LcdPixels,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = baseFontSize,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = "TAPE STOPPED  ❚❚",
                     color = PixelPalette.LcdPixels,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = baseFontSize,
                     maxLines = 1
                 )
+            } else {
+                // Line 1: Status & Source
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "STATUS: $statusText",
+                        color = PixelPalette.LcdPixels,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = baseFontSize,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "SRC: $source",
+                        color = PixelPalette.LcdPixels,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = baseFontSize,
+                        maxLines = 1
+                    )
+                }
+
+                // Line 2: Track title
                 Text(
-                    text = "SRC: $source",
+                    text = "TRACK: $trackTitle",
+                    color = PixelPalette.LcdPixels,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black,
+                    fontSize = titleFontSize,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                // Line 3: Artist
+                Text(
+                    text = "ARTIST: $artist",
                     color = PixelPalette.LcdPixels,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = baseFontSize,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-
-            // Line 2: Track title
-            Text(
-                text = "TRACK: $trackTitle",
-                color = PixelPalette.LcdPixels,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Black,
-                fontSize = titleFontSize,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            // Line 3: Artist
-            Text(
-                text = "ARTIST: $artist",
-                color = PixelPalette.LcdPixels,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = baseFontSize,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
 
             // Line 4: Time & Battery
             Row(

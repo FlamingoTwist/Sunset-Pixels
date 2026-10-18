@@ -58,6 +58,7 @@ fun CassetteDeck(
     shellColor: Color = PixelPalette.TapeBodyWhite,
     isHomeMade: Boolean = false,
     artworkBitmap: Bitmap? = null,
+    isShuddering: Boolean = false,
     onEjectOrInsert: () -> Unit
 ) {
     // Stepped ratchet mechanical rotation (not smoothly)
@@ -71,6 +72,21 @@ fun CassetteDeck(
         }
     }
 
+    // Mechanical tape motor vibration / jam shudder animation
+    var shakeX by remember { mutableStateOf(0f) }
+    LaunchedEffect(isShuddering) {
+        if (isShuddering) {
+            val pattern = listOf(4.5f, -4.5f, 4f, -4f, 3f, -3f, 2f, -2f, 1f, -1f, 0f)
+            for (offset in pattern) {
+                shakeX = offset
+                delay(40L)
+            }
+            shakeX = 0f
+        } else {
+            shakeX = 0f
+        }
+    }
+
     val currentRotation = if (isPlaying && isTapeInserted) {
         stepCount * 15f // 15 degrees per chunky mechanical jump
     } else {
@@ -81,6 +97,7 @@ fun CassetteDeck(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1024f / 593f)
+            .offset(x = shakeX.dp)
             .clickable { onEjectOrInsert() },
         contentAlignment = Alignment.TopStart
     ) {
