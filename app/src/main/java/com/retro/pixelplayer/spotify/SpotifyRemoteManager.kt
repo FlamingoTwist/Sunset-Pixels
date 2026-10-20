@@ -1,6 +1,9 @@
 package com.retro.pixelplayer.spotify
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.util.Log
 import android.view.KeyEvent
@@ -13,6 +16,7 @@ import com.spotify.protocol.types.Repeat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +45,9 @@ object SpotifyRemoteManager {
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
+    private val _needsAuthorization = MutableStateFlow(false)
+    val needsAuthorization: StateFlow<Boolean> = _needsAuthorization.asStateFlow()
+
     @Volatile
     private var isConnecting = false
     private var pendingPlayUri: String? = null
@@ -57,6 +64,64 @@ object SpotifyRemoteManager {
     }
 
     /**
+     * Checks whether Spotify is installed but dormant (disconnected, sleeping in background).
+     */
+    fun isDormant(context: Context): Boolean {
+        if (!isInstalled(context)) return false
+        return appRemote?.isConnected != true
+    }
+
+    /**
+     * Wakes Spotify headlessly in the background using Android's OS-level MEDIA_BUTTON
+     * intent allowlist. Resurrects com.spotify.music's background playback process without EVER
+     * switching apps or bringing the Spotify UI to the foreground.
+     */
+    fun wakeSpotifyHeadless(context: Context) {
+        try {
+            val pm = context.packageManager
+            val mediaIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                setPackage("com.spotify.music")
+            }
+            val receivers = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                pm.queryBroadcastReceivers(mediaIntent, PackageManager.ResolveInfoFlags.of(0L))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.queryBroadcastReceivers(mediaIntent, 0)
+            }
+
+            if (receivers.isNotEmpty()) {
+                for (resolveInfo in receivers) {
+                    val component = ComponentName(resolveInfo.activityInfo.packageName, resolveInfo.activityInfo.name)
+                    val explicitDown = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                        this.component = component
+                        putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+                    }
+                    context.sendBroadcast(explicitDown)
+                    val explicitUp = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                        this.component = component
+                        putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
+                    }
+                    context.sendBroadcast(explicitUp)
+                }
+            } else {
+                val downIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                    setPackage("com.spotify.music")
+                    putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+                }
+                context.sendBroadcast(downIntent)
+                val upIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                    setPackage("com.spotify.music")
+                    putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
+                }
+                context.sendBroadcast(upIntent)
+            }
+            Log.d(TAG, "wakeSpotifyHeadless: Sent wake-up broadcast to com.spotify.music")
+        } catch (e: Exception) {
+            Log.w(TAG, "wakeSpotifyHeadless warning: ${e.message}")
+        }
+    }
+
+    /**
      * Binds strictly to Spotify's background service. showAuthView is ALWAYS false
      * by default so that the Spotify application UI is never brought to the foreground.
      * showAuthView is only passed as true when the user explicitly taps "AUTHORIZE SPOTIFY PLAYBACK" in settings.
@@ -64,6 +129,7 @@ object SpotifyRemoteManager {
     fun connect(
         context: Context,
         showAuthView: Boolean = false,
+        isRetry: Boolean = false,
         onConnected: (() -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null
     ) {
@@ -81,6 +147,12 @@ object SpotifyRemoteManager {
         if (isConnecting) return
         isConnecting = true
 
+        // If Spotify is not connected and we are attempting a background connection,
+        // fire the headless wake broadcast beforehand so the service is ready
+        if (!showAuthView && !isRetry && isInstalled(context)) {
+            wakeSpotifyHeadless(context)
+        }
+
         val clientId = SpotifyManager.getSavedClientId(context)
         val params = ConnectionParams.Builder(clientId)
             .setRedirectUri(SpotifyManager.REDIRECT_URI)
@@ -94,6 +166,7 @@ object SpotifyRemoteManager {
                 isConnecting = false
                 appRemote = remote
                 _isConnected.value = true
+                _needsAuthorization.value = false
             appRemote?.playerApi?.playerState?.setResultCallback { state ->
                 if (state != null) {
                     _playerState.value = state
@@ -131,7 +204,29 @@ object SpotifyRemoteManager {
             override fun onFailure(throwable: Throwable) {
                 isConnecting = false
                 _isConnected.value = false
-                Log.w(TAG, "SpotifyAppRemote connection failure: ${throwable.message}")
+                val isAuthRequired = throwable.message?.contains("Explicit user authorization is required", ignoreCase = true) == true
+                if (isAuthRequired) {
+                    _needsAuthorization.value = true
+                }
+                Log.w(TAG, "SpotifyAppRemote connection failure (isRetry=$isRetry, isAuthRequired=$isAuthRequired): ${throwable.message}")
+
+                // If this was our first background attempt and Spotify was dormant (not an auth rejection),
+                // fire wake-up broadcast and retry connection once after a brief delay.
+                if (!isRetry && !showAuthView && !isAuthRequired && isInstalled(context)) {
+                    Log.d(TAG, "Spotify was likely dormant. Sending wake broadcast and retrying connect in 450ms...")
+                    wakeSpotifyHeadless(context)
+                    scope.launch {
+                        delay(450L)
+                        connect(
+                            context = context,
+                            showAuthView = false,
+                            isRetry = true,
+                            onConnected = onConnected,
+                            onError = onError
+                        )
+                    }
+                    return
+                }
 
                 // Clear pending play parameters so they don't linger
                 val queuedUri = pendingPlayUri
@@ -199,8 +294,8 @@ object SpotifyRemoteManager {
             pendingTrackUris = allTrackUris
 
             if (isInstalled(context)) {
-                // Connect to App Remote. On success, onConnected plays queued track.
-                // On failure, onFailure falls back cleanly to Web API.
+                // Preemptively wake Spotify headlessly so the IPC service is active
+                wakeSpotifyHeadless(context)
                 connect(context)
             } else {
                 scope.launch {
@@ -233,6 +328,10 @@ object SpotifyRemoteManager {
         if (remote != null && remote.isConnected) {
             remote.playerApi.resume()
         } else {
+            if (isInstalled(context)) {
+                wakeSpotifyHeadless(context)
+                connect(context)
+            }
             dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_PLAY)
             scope.launch {
                 SpotifyManager.resumeSpotify(context)

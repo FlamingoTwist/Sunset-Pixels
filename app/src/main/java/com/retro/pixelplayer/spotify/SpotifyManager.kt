@@ -1069,8 +1069,19 @@ object SpotifyManager {
             }.toString()
 
             // Find strictly THIS local phone among available Spotify Connect devices
-            val devices = getAvailableDevices(context)
-            val localPhone = findLocalDevice(context, devices)
+            var devices = getAvailableDevices(context)
+            var localPhone = findLocalDevice(context, devices)
+
+            // If phone is not active in Spotify Connect, it may just have been woken up;
+            // poll for device registration
+            if (localPhone == null) {
+                for (retry in 1..2) {
+                    kotlinx.coroutines.delay(600L)
+                    devices = getAvailableDevices(context)
+                    localPhone = findLocalDevice(context, devices)
+                    if (localPhone != null) break
+                }
+            }
 
             if (localPhone != null) {
                 // EXCLUSIVELY target this phone device! NEVER send untargeted /play request!
@@ -1106,8 +1117,17 @@ object SpotifyManager {
     suspend fun resumeSpotify(context: Context): Boolean = withContext(Dispatchers.IO) {
         val token = getValidAccessToken(context) ?: return@withContext false
         try {
-            val devices = getAvailableDevices(context)
-            val localPhone = findLocalDevice(context, devices)
+            var devices = getAvailableDevices(context)
+            var localPhone = findLocalDevice(context, devices)
+
+            if (localPhone == null) {
+                for (retry in 1..2) {
+                    kotlinx.coroutines.delay(600L)
+                    devices = getAvailableDevices(context)
+                    localPhone = findLocalDevice(context, devices)
+                    if (localPhone != null) break
+                }
+            }
 
             if (localPhone != null) {
                 val code = sendPlayerRequest(
