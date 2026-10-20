@@ -140,32 +140,7 @@ fun CassetteDeck(
 
         val showCassette = isTapeInserted || isInserting || isEjecting
 
-        if (!showCassette) {
-            // Prompt centered in the empty tape bay
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "[ NO CASSETTE INSERTED ]",
-                    color = Color.White.copy(alpha = 0.75f),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "TAP DECK TO BROWSE TAPES",
-                    color = Color(0xFFFFAE52),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-        } else {
+        if (showCassette) {
             // CASSETTE TAPE BODY (moves up/down by tapeOffsetY)
             Box(
                 modifier = Modifier
@@ -247,7 +222,15 @@ fun CassetteDeck(
                     contentScale = ContentScale.Fit
                 )
 
-                // 4. Superimposed Text on Tape Label
+                // 4. Cassette Plastic Front Shell (moves up/down with the cassette)
+                Image(
+                    painter = pixelPainterResource(id = R.drawable.deck_cassette_shell),
+                    contentDescription = "Cassette Shell",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds
+                )
+
+                // 5. Superimposed Text on Tape Label
                 val labelLeft = deckWidth * (44f / 250f)
                 val labelTop = deckHeight * (24f / 144f)
                 val labelWidth = deckWidth * (160f / 250f)
@@ -298,6 +281,7 @@ fun CassetteDeck(
                                     modifier = Modifier
                                         .size(13.dp)
                                         .border(1.dp, Color(0xFF4A3E38))
+
                                 )
                             }
                             Text(
@@ -313,17 +297,42 @@ fun CassetteDeck(
                     }
                 }
             }
-
-            // CASSETTE SURROUND DOOR (Shifts down by doorOffsetY when unlatched/open)
-            Image(
-                painter = pixelPainterResource(id = R.drawable.deck_cassette_front),
-                contentDescription = "Cassette Front",
+        } else {
+            // Prompt centered in the empty tape bay
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .offset(y = doorOffsetY),
-                contentScale = ContentScale.FillBounds
-            )
+                    .padding(bottom = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "[ NO CASSETTE INSERTED ]",
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "TAP DECK TO BROWSE TAPES",
+                    color = Color(0xFFFFAE52),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
+
+        // CASSETTE SURROUND DOOR (Shifts down by doorOffsetY when unlatched/open)
+        Image(
+            painter = pixelPainterResource(id = R.drawable.deck_cassette_front),
+            contentDescription = "Cassette Front Door",
+            modifier = Modifier
+                .fillMaxSize()
+                .offset(y = doorOffsetY),
+            contentScale = ContentScale.FillBounds
+        )
     }
 }
 
