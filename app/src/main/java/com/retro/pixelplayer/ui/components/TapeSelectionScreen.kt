@@ -1,5 +1,9 @@
 package com.retro.pixelplayer.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +17,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -26,6 +31,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,15 +42,15 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import com.retro.pixelplayer.audio.TapeItem
-import com.retro.pixelplayer.audio.TapeType
 import com.retro.pixelplayer.feedback.MechanicalFeedback
 import com.retro.pixelplayer.ui.theme.PixelPalette
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class ShelfMode {
     OVERVIEW,       // The Shelf vs Shoe Box selection
@@ -73,9 +80,73 @@ fun TapeSelectionScreen(
     onTapeSelected: (TapeItem) -> Unit,
     onBackToPlayer: () -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
+
     var mode by remember { mutableStateOf(ShelfMode.OVERVIEW) }
     var selectedArtist by remember { mutableStateOf<String?>(null) }
     var sourceFilter by rememberSaveable { mutableStateOf(TapeSourceFilter.ALL) }
+
+    // Visual star favourite state (toggles instantly on tap for feedback)
+    var visualStarFavouriteIds by remember(favouriteTapeIds) { mutableStateOf(favouriteTapeIds) }
+    // List sorting favourite state (updates after 500ms delay & slide-off animation)
+    var displayedFavouriteIds by remember(favouriteTapeIds) { mutableStateOf(favouriteTapeIds) }
+
+    // Animation tracking states
+    var animatingFavTapeId by remember { mutableStateOf<String?>(null) }
+    val favOffsetX = remember { Animatable(0f) }
+
+    var selectedSlideOffTapeId by remember { mutableStateOf<String?>(null) }
+    val selectOffsetX = remember { Animatable(0f) }
+
+    // Handles delayed favourite animation sequence
+    fun handleToggleFavourite(tapeId: String) {
+        coroutineScope.launch {
+            val isCurrentlyFav = visualStarFavouriteIds.contains(tapeId)
+            // 1. Instantly toggle star for button feedback
+            visualStarFavouriteIds = if (isCurrentlyFav) {
+                visualStarFavouriteIds - tapeId
+            } else {
+                visualStarFavouriteIds + tapeId
+            }
+
+            if (!isCurrentlyFav) {
+                // Favoriting: 500ms delay where tape stays in place with lit star
+                delay(500L)
+
+                // Slide off quickly to the left (-1000dp)
+                animatingFavTapeId = tapeId
+                favOffsetX.snapTo(0f)
+                favOffsetX.animateTo(-1000f, animationSpec = tween(200, easing = LinearOutSlowInEasing))
+
+                // Re-sort list order (moves tape to top)
+                onToggleFavourite(tapeId)
+                displayedFavouriteIds = displayedFavouriteIds + tapeId
+
+                // Slide back in from left at top of list
+                favOffsetX.animateTo(0f, animationSpec = tween(220, easing = FastOutSlowInEasing))
+                animatingFavTapeId = null
+            } else {
+                // Un-favoriting: 500ms delay, then update sorting
+                delay(500L)
+                onToggleFavourite(tapeId)
+                displayedFavouriteIds = displayedFavouriteIds - tapeId
+            }
+        }
+    }
+
+    // Handles slide-off animation when selecting a tape to load into deck
+    fun handleSelectTape(tape: TapeItem) {
+        coroutineScope.launch {
+            feedback.onTapeLatch()
+            selectedSlideOffTapeId = tape.id
+            selectOffsetX.snapTo(0f)
+            selectOffsetX.animateTo(-1000f, animationSpec = tween(180, easing = LinearOutSlowInEasing))
+
+            onTapeSelected(tape)
+            selectedSlideOffTapeId = null
+            selectOffsetX.snapTo(0f)
+        }
+    }
 
     // Filtered collections based on user source filter
     val filteredArtistTapes = remember(artistTapes, sourceFilter) {
@@ -88,7 +159,7 @@ fun TapeSelectionScreen(
         }.filterValues { it.isNotEmpty() }
     }
 
-    val filteredPlaylistTapes = remember(playlistTapes, sourceFilter, favouriteTapeIds) {
+    val filteredPlaylistTapes = remember(playlistTapes, sourceFilter, displayedFavouriteIds) {
         val base = when (sourceFilter) {
             TapeSourceFilter.ALL -> playlistTapes
             TapeSourceFilter.LOCAL -> playlistTapes.filter { !it.isSpotify }
@@ -96,7 +167,7 @@ fun TapeSelectionScreen(
         }
         // Favourites jump straight to the top of the pile, followed alphabetically
         base.sortedWith(
-            compareByDescending<TapeItem> { favouriteTapeIds.contains(it.id) }
+            compareByDescending<TapeItem> { displayedFavouriteIds.contains(it.id) }
                 .thenBy { it.title.lowercase() }
         )
     }
@@ -401,7 +472,7 @@ fun TapeSelectionScreen(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(filteredArtistTapes.keys.toList()) { artist ->
+                        items(filteredArtistTapes.keys.toList(), key = { it }) { artist ->
                             val tapes = filteredArtistTapes[artist] ?: emptyList()
                             val sampleArt = tapes.firstOrNull { it.artworkBitmap != null }?.artworkBitmap
 
@@ -529,16 +600,22 @@ fun TapeSelectionScreen(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(tapes) { tape ->
+                        items(tapes, key = { it.id }) { tape ->
+                            val itemOffsetX = when {
+                                tape.id == animatingFavTapeId -> favOffsetX.value.dp
+                                tape.id == selectedSlideOffTapeId -> selectOffsetX.value.dp
+                                else -> 0.dp
+                            }
+
                             TapeSpineItem(
                                 tape = tape,
                                 feedback = feedback,
-                                isFavourite = favouriteTapeIds.contains(tape.id),
-                                onToggleFavourite = { onToggleFavourite(tape.id) },
-                                onSelect = {
-                                    feedback.onTapeLatch()
-                                    onTapeSelected(tape)
-                                }
+                                isFavourite = visualStarFavouriteIds.contains(tape.id),
+                                onToggleFavourite = { handleToggleFavourite(tape.id) },
+                                onSelect = { handleSelectTape(tape) },
+                                modifier = Modifier
+                                    .animateItem()
+                                    .offset(x = itemOffsetX)
                             )
                         }
                     }
@@ -597,20 +674,74 @@ fun TapeSelectionScreen(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(filteredPlaylistTapes) { tape ->
+                        items(filteredPlaylistTapes, key = { it.id }) { tape ->
+                            val itemOffsetX = when {
+                                tape.id == animatingFavTapeId -> favOffsetX.value.dp
+                                tape.id == selectedSlideOffTapeId -> selectOffsetX.value.dp
+                                else -> 0.dp
+                            }
+
                             TapeSpineItem(
                                 tape = tape,
                                 feedback = feedback,
-                                isFavourite = favouriteTapeIds.contains(tape.id),
-                                onToggleFavourite = { onToggleFavourite(tape.id) },
-                                onSelect = {
-                                    feedback.onTapeLatch()
-                                    onTapeSelected(tape)
-                                }
+                                isFavourite = visualStarFavouriteIds.contains(tape.id),
+                                onToggleFavourite = { handleToggleFavourite(tape.id) },
+                                onSelect = { handleSelectTape(tape) },
+                                modifier = Modifier
+                                    .animateItem()
+                                    .offset(x = itemOffsetX)
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 3-Way Source Filter Toggle Bar (ALL TAPES | LOCAL | SPOTIFY)
+ */
+@Composable
+private fun TapeFilterBar(
+    selectedFilter: TapeSourceFilter,
+    onFilterSelected: (TapeSourceFilter) -> Unit,
+    feedback: MechanicalFeedback
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFF1F1A28))
+            .border(1.dp, Color(0xFF3B324A), RoundedCornerShape(6.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        TapeSourceFilter.entries.forEach { filter ->
+            val isSelected = filter == selectedFilter
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isSelected) PixelPalette.PlayGreen else Color(0xFF2A2337))
+                    .clickable {
+                        feedback.onTick()
+                        onFilterSelected(filter)
+                    }
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = when (filter) {
+                        TapeSourceFilter.ALL -> "ALL TAPES"
+                        TapeSourceFilter.LOCAL -> "💾 LOCAL"
+                        TapeSourceFilter.SPOTIFY -> "🟢 SPOTIFY"
+                    },
+                    color = if (isSelected) Color(0xFF0D2818) else Color(0xFFB3A8C7),
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp
+                )
             }
         }
     }
@@ -626,10 +757,11 @@ fun TapeSpineItem(
     feedback: MechanicalFeedback,
     isFavourite: Boolean = false,
     onToggleFavourite: (() -> Unit)? = null,
-    onSelect: () -> Unit
+    onSelect: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(60.dp)
             .clip(RoundedCornerShape(6.dp))
@@ -754,100 +886,6 @@ fun TapeSpineItem(
                         color = if (isFavourite) Color(0xFFFFD700) else Color(0xFF888299),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            // "LOAD TAPE" button pill
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(PixelPalette.PlayGreen)
-                    .border(1.dp, PixelPalette.PlayGreenHighlight, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = "INSERT ⏏",
-                    color = Color.White,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp
-                )
-            }
-        }
-    }
-}
-
-/**
- * 3-Way Retro segmented filter toggle: ALL | 💾 LOCAL | 🟢 SPOTIFY
- */
-@Composable
-fun TapeFilterBar(
-    selectedFilter: TapeSourceFilter,
-    onFilterSelected: (TapeSourceFilter) -> Unit,
-    feedback: MechanicalFeedback
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(Color(0xFF1E1A29))
-            .border(2.dp, Color(0xFF2E273D), RoundedCornerShape(6.dp))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        TapeSourceFilter.values().forEach { filter ->
-            val isSelected = filter == selectedFilter
-
-            val (activeBg, activeBorder, activeText) = when (filter) {
-                TapeSourceFilter.ALL -> Triple(Color(0xFF453D28), Color(0xFFFFB300), Color(0xFFFFD54F))
-                TapeSourceFilter.LOCAL -> Triple(Color(0xFF152F47), Color(0xFF29B6F6), Color(0xFF81D4FA))
-                TapeSourceFilter.SPOTIFY -> Triple(Color(0xFF17381C), Color(0xFF4CAF50), Color(0xFFA5D6A7))
-            }
-
-            val bg = if (isSelected) activeBg else Color(0xFF252033)
-            val borderColor = if (isSelected) activeBorder else Color(0xFF383049)
-            val textColor = if (isSelected) activeText else Color(0xFF8D859B)
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(30.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(bg)
-                    .border(if (isSelected) 1.5.dp else 1.dp, borderColor, RoundedCornerShape(4.dp))
-                    .clickable {
-                        if (!isSelected) {
-                            feedback.onTick()
-                            onFilterSelected(filter)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (isSelected) {
-                        Text(
-                            text = "▶",
-                            color = textColor,
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Text(
-                        text = when (filter) {
-                            TapeSourceFilter.ALL -> "ALL TAPES"
-                            TapeSourceFilter.LOCAL -> "💾 LOCAL"
-                            TapeSourceFilter.SPOTIFY -> "🟢 SPOTIFY"
-                        },
-                        color = textColor,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
-                        fontSize = 11.sp,
-                        maxLines = 1
                     )
                 }
             }

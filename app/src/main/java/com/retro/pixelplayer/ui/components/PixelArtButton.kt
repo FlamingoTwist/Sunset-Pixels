@@ -14,7 +14,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.res.painterResource
+
 import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.delay
 
@@ -75,7 +75,7 @@ fun PixelArtButton(
             }
     ) {
         Image(
-            painter = painterResource(id = if (isDown) pressedResId else unpressedResId),
+            painter = pixelPainterResource(id = if (isDown) pressedResId else unpressedResId),
             contentDescription = null,
             modifier = Modifier.fillMaxSize()
         )

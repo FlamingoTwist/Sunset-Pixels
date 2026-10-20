@@ -59,7 +59,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import com.retro.pixelplayer.skin.SkinManager
-import androidx.compose.ui.res.painterResource
+import com.retro.pixelplayer.ui.components.pixelPainterResource
+
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -269,6 +270,8 @@ fun RetroAppRoot(
     }
 
     var isTapeInserted by remember { mutableStateOf(true) }
+    var isTapeInserting by remember { mutableStateOf(false) }
+    var isTapeEjecting by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var isPaused by remember { mutableStateOf(false) }
     var isSpotifyRemotePlaying by remember { mutableStateOf(false) }
@@ -605,6 +608,7 @@ fun RetroAppRoot(
                         SpotifyManager.saveLastTapeId(context, selectedTape.id)
                         activeTrackIndex = 0
                         isTapeInserted = true
+                        isTapeInserting = true
                         currentScreen = CurrentAppView.DECK
 
                         // Auto-cue first track
@@ -625,6 +629,16 @@ fun RetroAppRoot(
                     activeTrackIndex = activeTrackIndex,
                     totalTracksInTape = activeTracks.size,
                     isTapeInserted = isTapeInserted,
+                    isInserting = isTapeInserting,
+                    isEjecting = isTapeEjecting,
+                    onInsertAnimationFinished = {
+                        isTapeInserting = false
+                    },
+                    onEjectAnimationFinished = {
+                        isTapeEjecting = false
+                        isTapeInserted = false
+                        currentScreen = CurrentAppView.TAPE_SELECTION
+                    },
                     isPlaying = isPlaying,
                     isPaused = isPaused,
                     isSpotifyLoggedIn = isSpotifyLoggedIn,
@@ -699,12 +713,10 @@ fun RetroAppRoot(
                         }
                         isSpotifyRemotePlaying = false
                         isPlaying = false
-                        isTapeInserted = false
                         exoPlayer.stop()
                         isPaused = false
                         currentPositionMs = 0L
-                        // Switch immediately to tape collection!
-                        currentScreen = CurrentAppView.TAPE_SELECTION
+                        isTapeEjecting = true
                     },
                     onTapeDeckTapped = {
                         feedback.onTapeLatch()
@@ -714,11 +726,12 @@ fun RetroAppRoot(
                             }
                             isSpotifyRemotePlaying = false
                             isPlaying = false
-                            isTapeInserted = false
                             exoPlayer.stop()
                             isPaused = false
+                            isTapeEjecting = true
+                        } else {
+                            currentScreen = CurrentAppView.TAPE_SELECTION
                         }
-                        currentScreen = CurrentAppView.TAPE_SELECTION
                     },
                     onBrowseTapesClicked = {
                         feedback.onTick()
@@ -762,6 +775,10 @@ fun DeckScreen(
     activeTrackIndex: Int,
     totalTracksInTape: Int,
     isTapeInserted: Boolean,
+    isInserting: Boolean = false,
+    isEjecting: Boolean = false,
+    onEjectAnimationFinished: (() -> Unit)? = null,
+    onInsertAnimationFinished: (() -> Unit)? = null,
     isPlaying: Boolean,
     isPaused: Boolean,
     isSpotifyLoggedIn: Boolean = false,
@@ -844,7 +861,7 @@ fun DeckScreen(
         // so the aspect ratio matches the device screen and the texture is never stretched or blurry.
         val bgResId = if (isLandscape) R.drawable.chassis_texture_bg else R.drawable.chassis_texture_portrait
         Image(
-            painter = painterResource(id = bgResId),
+            painter = pixelPainterResource(id = bgResId),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.FillBounds
@@ -928,6 +945,10 @@ fun DeckScreen(
                     shellColor = tapeShellColor,
                     isHomeMade = currentTape?.isHomeMade ?: false,
                     artworkBitmap = currentTape?.artworkBitmap,
+                    isInserting = isInserting,
+                    isEjecting = isEjecting,
+                    onEjectAnimationFinished = onEjectAnimationFinished,
+                    onInsertAnimationFinished = onInsertAnimationFinished,
                     onEjectOrInsert = { onTapeDeckTapped() }
                 )
 
@@ -939,7 +960,7 @@ fun DeckScreen(
                 val ventsH = ch * (ventsEl?.relHeight ?: 0.0874f)
 
                 Image(
-                    painter = painterResource(id = R.drawable.chassis_speaker_vents),
+                    painter = pixelPainterResource(id = R.drawable.chassis_speaker_vents),
                     contentDescription = "Speaker Vents",
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -1063,6 +1084,10 @@ fun DeckScreen(
                     shellColor = tapeShellColor,
                     isHomeMade = currentTape?.isHomeMade ?: false,
                     artworkBitmap = currentTape?.artworkBitmap,
+                    isInserting = isInserting,
+                    isEjecting = isEjecting,
+                    onEjectAnimationFinished = onEjectAnimationFinished,
+                    onInsertAnimationFinished = onInsertAnimationFinished,
                     onEjectOrInsert = { onTapeDeckTapped() }
                 )
 
@@ -1167,7 +1192,7 @@ fun DeckScreen(
                 val ventsH = ch * (ventsEl?.relHeight ?: 0.0459f)
 
                 Image(
-                    painter = painterResource(id = R.drawable.chassis_speaker_vents),
+                    painter = pixelPainterResource(id = R.drawable.chassis_speaker_vents),
                     contentDescription = "Speaker Vents",
                     modifier = Modifier
                         .align(Alignment.TopStart)
