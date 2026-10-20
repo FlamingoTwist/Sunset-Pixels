@@ -382,6 +382,12 @@ fun RetroAppRoot(
                 totalDurationMs = dur
             }
 
+            // Ignore stale state events from the previous song while cueing to a new song
+            val targetUri = activeTracks.getOrNull(activeTrackIndex)?.spotifyUri
+            if (isCueingTrack && !targetUri.isNullOrBlank() && stateUri != targetUri) {
+                return@LaunchedEffect
+            }
+
             // Sync active cassette track if Spotify auto-advanced natively to next track
             if (!stateUri.isNullOrBlank() && activeTracks.isNotEmpty()) {
                 val matchIdx = activeTracks.indexOfFirst { it.spotifyUri == stateUri }
@@ -404,7 +410,7 @@ fun RetroAppRoot(
             isPlaying = !state.isPaused
             isPaused = state.isPaused
             currentPositionMs = state.playbackPosition
-            if (state.playbackPosition > 0L) {
+            if (state.playbackPosition > 0L || stateUri == targetUri) {
                 isCueingTrack = false
             }
         }
@@ -505,6 +511,10 @@ fun RetroAppRoot(
                     }
                     val webUri = webState.trackUri
                     if (!webUri.isNullOrBlank() && activeTracks.isNotEmpty()) {
+                        val targetUri = activeTracks.getOrNull(activeTrackIndex)?.spotifyUri
+                        if (isCueingTrack && !targetUri.isNullOrBlank() && webUri != targetUri) {
+                            continue
+                        }
                         val matchIdx = activeTracks.indexOfFirst { it.spotifyUri == webUri }
                         if (matchIdx >= 0 && matchIdx != activeTrackIndex) {
                             activeTrackIndex = matchIdx

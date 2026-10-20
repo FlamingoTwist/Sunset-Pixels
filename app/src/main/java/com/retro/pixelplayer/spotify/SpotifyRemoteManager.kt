@@ -164,35 +164,31 @@ object SpotifyRemoteManager {
     ) {
         val remote = appRemote
         if (remote != null && remote.isConnected) {
-            if (!contextUri.isNullOrBlank() && trackIndex != null && trackIndex >= 0) {
-                // If playlist or album context is available, play context at trackIndex so Spotify manages the whole playlist queue!
-                remote.playerApi.skipToIndex(contextUri, trackIndex)
-                    .setErrorCallback { error ->
-                        Log.w(TAG, "skipToIndex error (${error.message}), falling back to direct play")
-                        remote.playerApi.play(spotifyUri)
-                    }
-            } else {
-                remote.playerApi.play(spotifyUri)
-                    .setErrorCallback { error ->
-                        Log.w(TAG, "playerApi.play error: ${error.message}")
-                    }
-            }
+            // Directly play authentic track without skipToIndex error-callback fallbacks
+            remote.playerApi.play(spotifyUri)
+                .setErrorCallback { error ->
+                    Log.w(TAG, "playerApi.play error: ${error.message}")
+                }
         } else {
             pendingPlayUri = spotifyUri
             pendingContextUri = contextUri
             pendingTrackIndex = trackIndex
             pendingTrackUris = allTrackUris
-            connect(context)
 
-            // When App Remote is not yet connected, only attempt Web API playback if THIS phone is detected
-            scope.launch {
-                SpotifyManager.playSpotifyTrack(
-                    context = context,
-                    spotifyUri = spotifyUri,
-                    contextUri = contextUri,
-                    trackIndex = trackIndex,
-                    allTrackUris = allTrackUris
-                )
+            if (isInstalled(context)) {
+                // Connect to App Remote. On success, onConnected plays queued track.
+                // On failure, onFailure falls back cleanly to Web API.
+                connect(context)
+            } else {
+                scope.launch {
+                    SpotifyManager.playSpotifyTrack(
+                        context = context,
+                        spotifyUri = spotifyUri,
+                        contextUri = contextUri,
+                        trackIndex = trackIndex,
+                        allTrackUris = allTrackUris
+                    )
+                }
             }
         }
     }
@@ -262,9 +258,13 @@ object SpotifyRemoteManager {
     }
 
     fun seekTo(context: Context, positionMs: Long) {
-        appRemote?.playerApi?.seekTo(positionMs)
-        scope.launch {
-            SpotifyManager.seekSpotify(context, positionMs)
+        val remote = appRemote
+        if (remote != null && remote.isConnected) {
+            remote.playerApi.seekTo(positionMs)
+        } else {
+            scope.launch {
+                SpotifyManager.seekSpotify(context, positionMs)
+            }
         }
     }
 
