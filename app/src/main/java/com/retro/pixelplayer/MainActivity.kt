@@ -834,24 +834,52 @@ fun DeckScreen(
 
     val currentSpotifyTrack = spotifyPlayerState?.track
     val isSpotifyTape = currentTape?.isSpotify == true
-    val hasAuthenticActiveTrack = activeTrack != null && activeTrack.artist != "Spotify Playlist" && activeTrack.title.isNotBlank()
+    val tapeTitleStr = currentTape?.title?.trim() ?: ""
+
+    // Strictly prevents playlist name or generic place-holders from ever polluting Track or Artist readouts
+    fun isForbiddenText(text: String?): Boolean {
+        if (text.isNullOrBlank()) return true
+        val trimmed = text.trim()
+        if (tapeTitleStr.isNotBlank() && trimmed.equals(tapeTitleStr, ignoreCase = true)) return true
+        val lower = trimmed.lowercase()
+        return lower == "spotify playlist" ||
+               lower == "spotify artist" ||
+               lower == "spotify mixtape" ||
+               lower == "unknown" ||
+               lower == "unknown playlist" ||
+               lower == "track" ||
+               lower.startsWith("spotify mix")
+    }
+
+    // 1. Authoritative Spotify App Remote track info (if currently connected & streaming)
+    val liveSpotifyTrackName = currentSpotifyTrack?.name?.takeIf { !isForbiddenText(it) }
+    val liveSpotifyArtistName = currentSpotifyTrack?.artist?.name?.takeIf { !isForbiddenText(it) }
+
+    // 2. Authentic active track from cassette tracklist
+    val authenticTrackTitle = activeTrack?.title?.takeIf { !isForbiddenText(it) }
+    val authenticArtistName = activeTrack?.artist?.takeIf { !isForbiddenText(it) }
 
     val trackTitle = when {
         !isTapeInserted -> "PLEASE INSERT TAPE"
-        hasAuthenticActiveTrack -> activeTrack!!.title
-        isSpotifyTape && currentSpotifyTrack != null && currentSpotifyTrack.name.isNotBlank() ->
-            currentSpotifyTrack.name
-        activeTrack != null -> activeTrack.title
-        else -> "EMPTY C-90"
+        // Spotify App Remote live track is authoritative when playing/streaming:
+        isSpotifyTape && liveSpotifyTrackName != null -> liveSpotifyTrackName
+        // Authentic track from tape tracklist:
+        authenticTrackTitle != null -> authenticTrackTitle
+        // Fallback: strictly generic track number, NEVER the playlist name!
+        else -> "TRACK ${activeTrackIndex + 1}"
     }
 
     val artistText = when {
         !isTapeInserted -> "----"
-        hasAuthenticActiveTrack -> activeTrack!!.artist
-        isSpotifyTape && currentSpotifyTrack != null && currentSpotifyTrack.artist.name.isNotBlank() ->
-            currentSpotifyTrack.artist.name
-        isSpotifyTape && currentTape != null -> currentTape.title
-        else -> "UNKNOWN"
+        // Spotify App Remote live artist is authoritative when playing/streaming:
+        isSpotifyTape && liveSpotifyArtistName != null -> liveSpotifyArtistName
+        // Authentic artist from tape tracklist:
+        authenticArtistName != null -> authenticArtistName
+        currentTape?.type == TapeType.ARTIST_ALL -> currentTape.subtitle.takeIf { !isForbiddenText(it) } ?: "ARTIST DISCOGRAPHY"
+        currentTape?.type == TapeType.ALBUM -> currentTape.subtitle.takeIf { !isForbiddenText(it) } ?: "ALBUM"
+        // Fallback: strictly audio source indicator, NEVER the playlist name!
+        isSpotifyTape -> "SPOTIFY AUDIO"
+        else -> "LOCAL STEREO"
     }
 
     val statusText = when {

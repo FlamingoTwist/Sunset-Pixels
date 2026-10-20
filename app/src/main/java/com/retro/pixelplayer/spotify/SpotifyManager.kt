@@ -330,14 +330,14 @@ object SpotifyManager {
                     val fallbackTracks = if (tracks.isNotEmpty()) {
                         tracks
                     } else {
-                        // Even if Spotify Dev Mode restricts track listing on an algorithmic playlist,
-                        // create a playable context track so the cassette still works in the deck!
+                        // Algorithmic or protected playlist context track: strictly use generic track numbering,
+                        // NEVER the playlist name as track or artist!
                         listOf(
                             Track(
                                 id = plId.hashCode().toLong(),
-                                title = plName,
-                                artist = "Spotify Playlist",
-                                album = plName,
+                                title = "Track 1",
+                                artist = "Spotify Audio",
+                                album = "Spotify Mixtape",
                                 durationMs = 180000L,
                                 contentUri = Uri.parse(plUri),
                                 spotifyUri = plUri
@@ -721,16 +721,31 @@ object SpotifyManager {
     }
 
     private fun deserializeTapeItem(obj: JSONObject): TapeItem {
+        val tapeTitle = obj.optString("title", "").trim()
         val tracks = mutableListOf<Track>()
         val tracksArr = obj.optJSONArray("tracks") ?: JSONArray()
         for (i in 0 until tracksArr.length()) {
             val tObj = tracksArr.optJSONObject(i) ?: continue
             val spUri = tObj.optString("spotifyUri", "").ifBlank { null }
+            val rawTitle = tObj.optString("title", "Track").trim()
+            val rawArtist = tObj.optString("artist", "Artist").trim()
+
+            // Strictly sanitize legacy cached tracks: never let the playlist title pollute track or artist
+            val cleanTitle = if (rawTitle.isBlank() || (tapeTitle.isNotBlank() && rawTitle.equals(tapeTitle, ignoreCase = true))) {
+                "Track ${i + 1}"
+            } else rawTitle
+
+            val cleanArtist = if (rawArtist.isBlank() ||
+                rawArtist.equals("Spotify Playlist", ignoreCase = true) ||
+                (tapeTitle.isNotBlank() && rawArtist.equals(tapeTitle, ignoreCase = true))) {
+                "Spotify Audio"
+            } else rawArtist
+
             tracks.add(
                 Track(
                     id = tObj.optLong("id"),
-                    title = tObj.optString("title", "Track"),
-                    artist = tObj.optString("artist", "Artist"),
+                    title = cleanTitle,
+                    artist = cleanArtist,
                     album = tObj.optString("album", "Album"),
                     durationMs = tObj.optLong("durationMs", 180000L),
                     contentUri = Uri.parse(spUri ?: tObj.optString("contentUri", "spotify:track:$i")),
