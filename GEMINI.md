@@ -23,7 +23,7 @@ This document captures the architectural nuances, non-obvious workarounds, and v
      ```powershell
      gh release upload v0.2.0 "s:\AmosApps\Music Player\Sunset-Pixels.apk" "s:\AmosApps\Music Player\Sunset-Soundwaves.apk" --clobber
      ```
-  *Current Stable Release*: `v0.2.0` (all subsequent development targets `0.3`).
+  *Current Stable Release*: `v0.3.0` (all subsequent development targets `0.4`).
 
 - **Direct Physical Device Deployment via ADB (Wireless & USB)**:
   - **ADB Binary Path**: Windows does not always have `adb` in the system `PATH`. Always invoke ADB using:
