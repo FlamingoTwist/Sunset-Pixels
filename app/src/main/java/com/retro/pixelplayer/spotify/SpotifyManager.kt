@@ -106,6 +106,27 @@ object SpotifyManager {
         return !prefs.getString(KEY_ACCESS_TOKEN, null).isNullOrBlank()
     }
 
+        private const val KEY_FAVOURITE_TAPES = "favourite_tape_ids"
+
+    fun getFavouriteTapeIds(context: Context): Set<String> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY_FAVOURITE_TAPES, emptySet())?.toSet() ?: emptySet()
+    }
+
+    fun toggleFavouriteTape(context: Context, tapeId: String): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = prefs.getStringSet(KEY_FAVOURITE_TAPES, emptySet())?.toMutableSet() ?: mutableSetOf()
+        val isNowFav = if (current.contains(tapeId)) {
+            current.remove(tapeId)
+            false
+        } else {
+            current.add(tapeId)
+            true
+        }
+        prefs.edit().putStringSet(KEY_FAVOURITE_TAPES, current).apply()
+        return isNowFav
+    }
+
     fun getSavedUserName(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getString(KEY_USER_NAME, "SPOTIFY USER") ?: "SPOTIFY USER"
@@ -278,20 +299,33 @@ object SpotifyManager {
             val allSpotifyTracks = mutableListOf<Track>()
             val albumArtworkCache = mutableMapOf<String, Bitmap?>()
 
-            // 1. Fetch User Playlists -> Homemade Mixtapes in Shoe Box
+            // 1. Fetch User Playlists with Full Pagination -> Homemade Mixtapes in Shoe Box
             try {
-                onProgress("SCANNING SPOTIFY PLAYLISTS...")
-                val playlistsJson = getJson("https://api.spotify.com/v1/me/playlists?limit=15", token)
-                val items = playlistsJson.optJSONArray("items") ?: JSONArray()
-                android.util.Log.d("SpotifySync", "Found ${items.length()} playlists")
-                for (i in 0 until items.length()) {
-                    val pl = items.optJSONObject(i) ?: continue
+                val allPlaylistItems = mutableListOf<JSONObject>()
+                var nextPlaylistsUrl: String? = "https://api.spotify.com/v1/me/playlists?limit=50"
+                var pageNum = 1
+
+                while (!nextPlaylistsUrl.isNullOrBlank() && allPlaylistItems.size < 250) {
+                    onProgress("SCANNING PLAYLISTS (PAGE $pageNum)...")
+                    val pageJson = getJson(nextPlaylistsUrl, token)
+                    val items = pageJson.optJSONArray("items") ?: JSONArray()
+                    for (i in 0 until items.length()) {
+                        items.optJSONObject(i)?.let { allPlaylistItems.add(it) }
+                    }
+                    val next = pageJson.optString("next", "")
+                    nextPlaylistsUrl = if (next.isNotBlank() && next != "null") next else null
+                    pageNum++
+                }
+
+                android.util.Log.d("SpotifySync", "Found ${allPlaylistItems.size} total playlists across $pageNum pages")
+                for (i in 0 until allPlaylistItems.size) {
+                    val pl = allPlaylistItems[i]
                     val plId = pl.optString("id")
                     if (plId.isBlank()) continue
                     val plName = pl.optString("name", "Spotify Mixtape")
                     val plUri = pl.optString("uri", "spotify:playlist:$plId")
 
-                    onProgress("LOADING MIXTAPE (${i + 1}/${items.length()}): ${plName.take(16)}...")
+                    onProgress("LOADING MIXTAPE (${i + 1}/${allPlaylistItems.size}): ${plName.take(16)}...")
                     val tracks = fetchPlaylistTracks(plId, plName, token)
                     val fallbackTracks = if (tracks.isNotEmpty()) {
                         tracks

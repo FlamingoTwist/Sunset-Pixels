@@ -117,10 +117,61 @@ fun CassetteDeck(
                 )
             }
         } else {
-            // Base Deck with Tape
+            // 1. Back Layer (Tape Inner Bay + Inner Cassette Backing)
             Image(
-                painter = painterResource(id = R.drawable.deck_cassette_base),
-                contentDescription = "Cassette Deck",
+                painter = painterResource(id = R.drawable.deck_cassette_back),
+                contentDescription = "Cassette Backing",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds
+            )
+
+            // 2. Dynamic Wobbling Tape Reels (not spools)
+            // Left Reel: wound tape pack around left hub
+            // Right Reel: wound tape pack around right hub
+            // 1 to 2 pixel authentic analog wobble when playing
+            val pxUnitX = deckWidth / 250f
+            val pxUnitY = deckHeight / 144f
+
+            val leftWobble = when ((stepCount + 0) % 4) {
+                1 -> Pair(1.5f, -1.0f)
+                2 -> Pair(0.0f, 1.5f)
+                3 -> Pair(-1.5f, 0.5f)
+                else -> Pair(0.0f, 0.0f)
+            }
+            val rightWobble = when ((stepCount + 2) % 4) {
+                1 -> Pair(-1.0f, 1.5f)
+                2 -> Pair(1.5f, -0.5f)
+                3 -> Pair(0.0f, -1.5f)
+                else -> Pair(0.0f, 0.0f)
+            }
+
+            val lOffX = pxUnitX * (if (isPlaying) leftWobble.first else 0f)
+            val lOffY = pxUnitY * (if (isPlaying) leftWobble.second else 0f)
+            val rOffX = pxUnitX * (if (isPlaying) rightWobble.first else 0f)
+            val rOffY = pxUnitY * (if (isPlaying) rightWobble.second else 0f)
+
+            Image(
+                painter = painterResource(id = R.drawable.deck_reel_left),
+                contentDescription = "Left Tape Reel",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .offset(x = lOffX, y = lOffY),
+                contentScale = ContentScale.FillBounds
+            )
+
+            Image(
+                painter = painterResource(id = R.drawable.deck_reel_right),
+                contentDescription = "Right Tape Reel",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .offset(x = rOffX, y = rOffY),
+                contentScale = ContentScale.FillBounds
+            )
+
+            // 3. Cassette Shell Front & Acrylic Door (Beige casing with window cutout, shine, auto-reverse)
+            Image(
+                painter = painterResource(id = R.drawable.deck_cassette_front),
+                contentDescription = "Cassette Front",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.FillBounds
             )

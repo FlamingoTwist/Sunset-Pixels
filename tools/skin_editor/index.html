@@ -1248,7 +1248,10 @@ function renderElements() {
       const leftSrc = (isSimulating && simCogStep === 1) ? window.ASSETS['cog_l_rot.png'] : window.ASSETS['cog_l_norm.png'];
       const rightSrc = (isSimulating && simCogStep === 1) ? window.ASSETS['cog_r_norm.png'] : window.ASSETS['cog_r_rot.png'];
       mock.innerHTML = `
-        <img src="${window.ASSETS['deck_cassette_base.png'] || ''}" style="position: absolute; width: 100%; height: 100%; opacity: 0.95; top: 0; left: 0; image-rendering: pixelated;">
+        <img src="${window.ASSETS['deck_cassette_back.png'] || ''}" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; image-rendering: pixelated;">
+        <img id="sim-reel-left" src="${window.ASSETS['deck_reel_left.png'] || ''}" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; image-rendering: pixelated;">
+        <img id="sim-reel-right" src="${window.ASSETS['deck_reel_right.png'] || ''}" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; image-rendering: pixelated;">
+        <img src="${window.ASSETS['deck_cassette_front.png'] || ''}" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; image-rendering: pixelated;">
         <img class="tape-spool left" src="${leftSrc || ''}">
         <img class="tape-spool right" src="${rightSrc || ''}">
       `;
@@ -1917,14 +1920,28 @@ function toggleSimulation() {
       document.querySelectorAll('.lcd-time-row span:last-child').forEach(s => s.textContent = `${mm}:${ss} / 04:15`);
     }, 1000);
 
+    const wobblePattern = [
+      { lx: 1, ly: -1, rx: -1, ry: 1 },
+      { lx: 0, ly: 1, rx: 1, ry: 0 },
+      { lx: -1, ly: 0, rx: 0, ry: -1 },
+      { lx: 0, ly: 0, rx: 0, ry: 0 }
+    ];
+    let wobbleIndex = 0;
+
     cogInterval = setInterval(() => {
       simCogStep = (simCogStep + 1) % 2;
+      wobbleIndex = (wobbleIndex + 1) % wobblePattern.length;
       const leftCog = document.querySelector('.tape-spool.left');
       const rightCog = document.querySelector('.tape-spool.right');
       if (leftCog && rightCog) {
         leftCog.src = simCogStep === 0 ? (window.ASSETS['cog_l_norm.png'] || '') : (window.ASSETS['cog_l_rot.png'] || '');
         rightCog.src = simCogStep === 0 ? (window.ASSETS['cog_r_rot.png'] || '') : (window.ASSETS['cog_r_norm.png'] || '');
       }
+      const w = wobblePattern[wobbleIndex];
+      const rL = document.getElementById('sim-reel-left');
+      const rR = document.getElementById('sim-reel-right');
+      if (rL) rL.style.transform = `translate(${w.lx}px, ${w.ly}px)`;
+      if (rR) rR.style.transform = `translate(${w.rx}px, ${w.ry}px)`;
     }, 150);
   } else {
     clearInterval(simInterval);

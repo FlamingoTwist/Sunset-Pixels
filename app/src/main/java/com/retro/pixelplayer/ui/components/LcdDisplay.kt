@@ -11,6 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -34,8 +40,23 @@ fun LcdDisplay(
     artist: String,
     source: String,
     timeText: String,
-    statusText: String
+    statusText: String,
+    isCueing: Boolean = false
 ) {
+    var spinnerIndex by remember { mutableStateOf(0) }
+    LaunchedEffect(isCueing) {
+        if (isCueing) {
+            while (true) {
+                delay(120L)
+                spinnerIndex = (spinnerIndex + 1) % 4
+            }
+        } else {
+            spinnerIndex = 0
+        }
+    }
+
+    val spinnerChars = listOf("|", "/", "-", "\\")
+    val spinnerGlyph = spinnerChars[spinnerIndex]
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -64,12 +85,13 @@ fun LcdDisplay(
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // Line 1: Status & Source
+            val displayStatus = if (isCueing) "CUEING [$spinnerGlyph]" else statusText
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "STATUS: $statusText",
+                    text = "STATUS: $displayStatus",
                     color = PixelPalette.LcdPixels,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
@@ -77,7 +99,7 @@ fun LcdDisplay(
                     maxLines = 1
                 )
                 Text(
-                    text = "SRC: $source",
+                    text = if (isCueing) "SEEK [$spinnerGlyph]" else "SRC: $source",
                     color = PixelPalette.LcdPixels,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,

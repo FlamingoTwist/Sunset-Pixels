@@ -274,6 +274,8 @@ fun RetroAppRoot(
     var isSpotifyRemotePlaying by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
+    var isCueingTrack by remember { mutableStateOf(false) }
+    var favouriteTapeIds by remember { mutableStateOf(SpotifyManager.getFavouriteTapeIds(context)) }
     val spotifyPlayerState by SpotifyRemoteManager.playerState.collectAsState()
     val isSpotifyRemoteConnected by SpotifyRemoteManager.isConnected.collectAsState()
 
@@ -296,6 +298,7 @@ fun RetroAppRoot(
 
     fun playTrack(track: Track?) {
         if (track == null || !isTapeInserted) return
+        isCueingTrack = true
         val scheme = track.contentUri.scheme ?: ""
         val isSpotifyTrack = (scheme == "spotify") || (track.spotifyUri != null) || (currentTape?.isSpotify == true)
 
@@ -356,7 +359,16 @@ fun RetroAppRoot(
                 (activeTrackIndex + 1) % tracks.size
             }
             activeTrackIndex = nextIndex
+            isCueingTrack = true
             playTrack(tracks[nextIndex])
+        }
+    }
+
+    // Cueing spinner timeout safeguard
+    LaunchedEffect(isCueingTrack, activeTrackIndex) {
+        if (isCueingTrack) {
+            delay(1200L)
+            isCueingTrack = false
         }
     }
 
@@ -378,6 +390,7 @@ fun RetroAppRoot(
                     currentPositionMs = state.playbackPosition
                     isPlaying = !state.isPaused
                     isPaused = state.isPaused
+                    isCueingTrack = false
                     return@LaunchedEffect
                 }
             }
@@ -391,6 +404,9 @@ fun RetroAppRoot(
             isPlaying = !state.isPaused
             isPaused = state.isPaused
             currentPositionMs = state.playbackPosition
+            if (state.playbackPosition > 0L) {
+                isCueingTrack = false
+            }
         }
     }
 
@@ -566,6 +582,11 @@ fun RetroAppRoot(
                 TapeSelectionScreen(
                     artistTapes = artistTapes,
                     playlistTapes = playlistTapes,
+                    favouriteTapeIds = favouriteTapeIds,
+                    onToggleFavourite = { id ->
+                        SpotifyManager.toggleFavouriteTape(context, id)
+                        favouriteTapeIds = SpotifyManager.getFavouriteTapeIds(context)
+                    },
                     feedback = feedback,
                     isSpotifyLoggedIn = isSpotifyLoggedIn,
                     onSpotifyClicked = { showSpotifyDialog = true },
@@ -600,6 +621,7 @@ fun RetroAppRoot(
                     currentPositionMs = currentPositionMs,
                     totalDurationMs = totalDurationMs,
                     feedback = feedback,
+                    isCueing = isCueingTrack,
                     onSpotifyClicked = { showSpotifyDialog = true },
                     onPlay = {
                         if (isTapeInserted) {
@@ -644,6 +666,7 @@ fun RetroAppRoot(
                         if (activeTracks.isNotEmpty()) {
                             activeTrackIndex = if (activeTrackIndex - 1 < 0) activeTracks.size - 1 else activeTrackIndex - 1
                             val prevTrack = activeTracks[activeTrackIndex]
+                            isCueingTrack = true
                             if (isSpotifyRemotePlaying || isPlaying) {
                                 playTrack(prevTrack)
                             }
@@ -653,6 +676,7 @@ fun RetroAppRoot(
                         if (activeTracks.isNotEmpty()) {
                             activeTrackIndex = (activeTrackIndex + 1) % activeTracks.size
                             val nextTrack = activeTracks[activeTrackIndex]
+                            isCueingTrack = true
                             if (isSpotifyRemotePlaying || isPlaying) {
                                 playTrack(nextTrack)
                             }
@@ -734,6 +758,7 @@ fun DeckScreen(
     currentPositionMs: Long,
     totalDurationMs: Long,
     feedback: MechanicalFeedback? = null,
+    isCueing: Boolean = false,
     onSpotifyClicked: () -> Unit = {},
     onPlay: () -> Unit,
     onPause: () -> Unit,
@@ -932,7 +957,8 @@ fun DeckScreen(
                         else -> "ALBUM"
                     },
                     timeText = formattedTime,
-                    statusText = statusText
+                    statusText = statusText,
+                    isCueing = isCueing
                 )
 
                 // 4. Transport Buttons Bank (Direct 1:1 clean placement matching designer)
@@ -1049,7 +1075,8 @@ fun DeckScreen(
                         else -> "ALBUM"
                     },
                     timeText = formattedTime,
-                    statusText = statusText
+                    statusText = statusText,
+                    isCueing = isCueing
                 )
 
                 // Shuffle Switch

@@ -65,6 +65,8 @@ enum class TapeSourceFilter {
 fun TapeSelectionScreen(
     artistTapes: Map<String, List<TapeItem>>,
     playlistTapes: List<TapeItem>,
+    favouriteTapeIds: Set<String> = emptySet(),
+    onToggleFavourite: (String) -> Unit = {},
     feedback: MechanicalFeedback,
     isSpotifyLoggedIn: Boolean = false,
     onSpotifyClicked: () -> Unit = {},
@@ -86,12 +88,17 @@ fun TapeSelectionScreen(
         }.filterValues { it.isNotEmpty() }
     }
 
-    val filteredPlaylistTapes = remember(playlistTapes, sourceFilter) {
-        when (sourceFilter) {
+    val filteredPlaylistTapes = remember(playlistTapes, sourceFilter, favouriteTapeIds) {
+        val base = when (sourceFilter) {
             TapeSourceFilter.ALL -> playlistTapes
             TapeSourceFilter.LOCAL -> playlistTapes.filter { !it.isSpotify }
             TapeSourceFilter.SPOTIFY -> playlistTapes.filter { it.isSpotify }
         }
+        // Favourites jump straight to the top of the pile, followed alphabetically
+        base.sortedWith(
+            compareByDescending<TapeItem> { favouriteTapeIds.contains(it.id) }
+                .thenBy { it.title.lowercase() }
+        )
     }
 
     Column(
@@ -526,6 +533,8 @@ fun TapeSelectionScreen(
                             TapeSpineItem(
                                 tape = tape,
                                 feedback = feedback,
+                                isFavourite = favouriteTapeIds.contains(tape.id),
+                                onToggleFavourite = { onToggleFavourite(tape.id) },
                                 onSelect = {
                                     feedback.onTapeLatch()
                                     onTapeSelected(tape)
@@ -592,6 +601,8 @@ fun TapeSelectionScreen(
                             TapeSpineItem(
                                 tape = tape,
                                 feedback = feedback,
+                                isFavourite = favouriteTapeIds.contains(tape.id),
+                                onToggleFavourite = { onToggleFavourite(tape.id) },
                                 onSelect = {
                                     feedback.onTapeLatch()
                                     onTapeSelected(tape)
@@ -613,6 +624,8 @@ fun TapeSelectionScreen(
 fun TapeSpineItem(
     tape: TapeItem,
     feedback: MechanicalFeedback,
+    isFavourite: Boolean = false,
+    onToggleFavourite: (() -> Unit)? = null,
     onSelect: () -> Unit
 ) {
     Box(
@@ -716,6 +729,33 @@ fun TapeSpineItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+
+            // Favourite Star Button
+            if (onToggleFavourite != null) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isFavourite) Color(0xFF2E2412) else Color(0xFF1E1A29))
+                        .border(
+                            width = 1.dp,
+                            color = if (isFavourite) Color(0xFFFFD700) else Color(0xFF4A4458),
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .clickable {
+                            feedback.onTick()
+                            onToggleFavourite()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isFavourite) "★" else "☆",
+                        color = if (isFavourite) Color(0xFFFFD700) else Color(0xFF888299),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             // "LOAD TAPE" button pill
