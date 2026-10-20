@@ -114,14 +114,22 @@ This document captures the architectural nuances, non-obvious workarounds, and v
 2. **Reel Spoke Rotation & True Hub Centers (`CassetteDeck.kt`)**:
    - `spinner_hub_left.png` and `spinner_hub_right.png` are centered at `(55, 55)` in a 111×111 square so they rotate cleanly around `TransformOrigin.Center` without wobble or eccentricity.
    - The true geometric reel centers in `deck_cassette_base.png` sit at `(339f / 1024f, 271f / 593f)` for the left spool and `(681f / 1024f, 271f / 593f)` for the right spool.
-3. **Nearest-Neighbor Filtering**:
+3. **Ejection Layer Hierarchy**:
+   - When ejecting a cassette, the deck inner cavity/chassis (`deck_cassette_inner`) remains strictly stationary inside the deck frame.
+   - Only the moving cassette elements translate vertically: the dynamic cassette shell (`cassette_shell_*`), the off-white label (`cassette_label_clean`), the album artwork, and the rotating reels/tape packs.
+4. **Cassette Colorways & Randomization**:
+   - Defined in `CassetteShellColor` enum: `CREAM` (classic beige), `STUDIO_OBSIDIAN` (charcoal/black), `SPORTS_YELLOW` (retro sports yellow), `MIAMI_MINT` (pastel mint/teal), and `SYNTHWAVE_CRIMSON` (bold 80s crimson).
+   - Master Aseprite source: `artwork/cassette_colourways.aseprite`.
+   - All colorways share a consistent off-white label. When a cassette is selected or loaded, a colorway is chosen randomly (or hashed from the tape ID) to keep the shelf feeling fresh and physical.
+5. **Nearest-Neighbor Filtering**:
    - Whenever rendering pixel art `ImageBitmap`s (especially `artworkBitmap` on cassettes), always pass `filterQuality = FilterQuality.None` to keep crisp pixel edges.
-4. **Dual Orientation Support**:
+6. **Dual Orientation Support**:
    - `MainActivity.kt` has no orientation lock in `AndroidManifest.xml` and branches on `configuration.orientation == Configuration.ORIENTATION_LANDSCAPE` inside `DeckScreen`. Any new HUD element or button added to `DeckScreen` must be wired in **both** the Landscape and Portrait branches.
-5. **Full-Resolution Background Scaling & Aspect Ratio Invariants**:
-   - The orange chassis texture scales to fit the 100% full resolution of the device screen (`Modifier.fillMaxSize()`, `ContentScale.FillBounds`).
+7. **Full-Resolution Background Scaling & Warm Yellow-Orange Chassis**:
+   - The chassis texture scales to fit the 100% full resolution of the device screen (`Modifier.fillMaxSize()`, `ContentScale.FillBounds`).
    - In Landscape, the app renders `chassis_texture_bg` (1024×460, aspect ratio ~2.22:1).
-   - In Portrait, the app renders `chassis_texture_portrait` (460×1024, aspect ratio ~1:2.22). This ensures the texture orientation matches the device without stretching or blurring across orientations.
+   - In Portrait, the app renders `chassis_texture_portrait` (460×1024, aspect ratio ~1:2.22).
+   - Chassis textures use a warm retro amber/mustard yellow-orange tone with distress speckling.
    - Safe drawing insets (`Modifier.windowInsetsPadding(WindowInsets.safeDrawing)`) are applied **strictly to the foreground content layer** (buttons, header bar, deck door, LCD display) so that buttons never collide with Android system navigation bars (`▢`, `○`, `◁`) or camera notches, while the chassis texture extends edge-to-edge behind the navigation bar.
 
 ### F. Android Auto / Automotive Head-Unit Support
@@ -134,3 +142,12 @@ This document captures the architectural nuances, non-obvious workarounds, and v
 - **ZERO SoundCloud / Third-Party Cover Fallbacks**: Never scrape or fuzzy-match tracks against SoundCloud, YouTube, JioSaavn, or any third-party engine. Every Spotify track MUST play the genuine track from Spotify.
 - **Fail Honestly & Transparently**: Never conceal a playback or connection failure by quietly substituting inferior audio. If App Remote or Spotify Connect is disconnected or requires authorization, display the status honestly to the user (e.g., on the LCD screen or in the Spotify Dialog) so they can reconnect or authorize.
 - **Headless & Background Invariant**: Never bring the Spotify app UI to the foreground (`startActivity` targeting `com.spotify.music` with `ACTION_VIEW` is strictly forbidden). Connection must always bind headlessly in the background (`showAuthView = false`).
+
+### H. Never Dispatch Unsolicited Media Key Broadcasts (`KEYCODE_MEDIA_PLAY`) on Connect, Resume, or Screen Wake
+- **The "Pocket Playback" Bug**:
+  - Never broadcast `Intent.ACTION_MEDIA_BUTTON` with `KEYCODE_MEDIA_PLAY` or call `AudioManager.dispatchMediaKeyEvent()` as a "wake-up" heuristic during app startup, lifecycle `ON_RESUME`, or IPC connection checks.
+  - Doing so causes Android and background media services (like Spotify) to interpret the key event as an unconditional user command to immediately blast music out loud.
+  - When the user locks/unlocks their phone, puts it in their pocket, or switches back to Sunset, `ON_RESUME` executes. If a play broadcast is emitted while App Remote IPC is unauthenticated or still binding, Spotify plays audio independently in the pocket while Sunset's LCD remains disconnected and blank.
+- **Strict Read-Only Connection Rule**:
+  - `SpotifyRemoteManager.connect()` and `refreshState()` must remain 100% read-only IPC queries via `SpotifyAppRemote.connect()`.
+  - Playback commands must **only** be issued in response to direct, explicit user actions (pressing the physical Walkman **PLAY** button or tapping a specific track in the cassette tracklist).
