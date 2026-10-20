@@ -292,13 +292,22 @@ fun RetroAppRoot(
     val spotifyPlayerState by SpotifyRemoteManager.playerState.collectAsState()
     val isSpotifyRemoteConnected by SpotifyRemoteManager.isConnected.collectAsState()
 
-    // Eagerly connect to Spotify App Remote if Spotify is logged in and installed
-    DisposableEffect(isSpotifyLoggedIn) {
+    // Connect and refresh Spotify playback state whenever app is resumed
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, isSpotifyLoggedIn) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                if (isSpotifyLoggedIn && SpotifyRemoteManager.isInstalled(context)) {
+                    SpotifyRemoteManager.refreshState(context)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         if (isSpotifyLoggedIn && SpotifyRemoteManager.isInstalled(context)) {
-            SpotifyRemoteManager.connect(context)
+            SpotifyRemoteManager.refreshState(context)
         }
         onDispose {
-            SpotifyRemoteManager.disconnect()
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -388,44 +397,28 @@ fun RetroAppRoot(
     // React to authoritative playback updates from the Spotify App Remote SDK
     LaunchedEffect(spotifyPlayerState) {
         val state = spotifyPlayerState ?: return@LaunchedEffect
-        if (isSpotifyRemotePlaying) {
-            val stateUri = state.track?.uri
+        val isSpotifyTape = currentTape?.isSpotify == true
+        if (isSpotifyRemotePlaying || isSpotifyTape) {
             val dur = state.track?.duration ?: 0L
             if (dur > 0L) {
                 totalDurationMs = dur
             }
 
-            // Ignore stale state events from the previous song while cueing to a new song
-            val targetUri = activeTracks.getOrNull(activeTrackIndex)?.spotifyUri
-            if (isCueingTrack && !targetUri.isNullOrBlank() && stateUri != targetUri) {
-                return@LaunchedEffect
-            }
-
-            // Sync active cassette track if Spotify auto-advanced natively to next track
-            if (!stateUri.isNullOrBlank() && activeTracks.isNotEmpty()) {
-                val matchIdx = activeTracks.indexOfFirst { it.spotifyUri == stateUri }
-                if (matchIdx >= 0 && matchIdx != activeTrackIndex) {
-                    activeTrackIndex = matchIdx
-                    currentPositionMs = state.playbackPosition
-                    isPlaying = !state.isPaused
-                    isPaused = state.isPaused
-                    isCueingTrack = false
-                    return@LaunchedEffect
-                }
-            }
-
-            // Detect if Spotify paused because the song finished (within 2s of end)
-            if (state.isPaused && isPlaying && dur > 10_000L && state.playbackPosition >= dur - 2000L) {
-                advanceToNextTrack()
-                return@LaunchedEffect
-            }
-
             isPlaying = !state.isPaused
             isPaused = state.isPaused
             currentPositionMs = state.playbackPosition
-            if (state.playbackPosition > 0L || stateUri == targetUri) {
-                isCueingTrack = false
+            if (!state.isPaused) {
+                isSpotifyRemotePlaying = true
             }
+
+            val stateUri = state.track?.uri
+            if (!stateUri.isNullOrBlank() && activeTracks.isNotEmpty()) {
+                val matchIdx = activeTracks.indexOfFirst { it.spotifyUri == stateUri }
+                if (matchIdx >= 0) {
+                    activeTrackIndex = matchIdx
+                }
+            }
+            isCueingTrack = false
         }
     }
 
@@ -612,6 +605,7 @@ fun RetroAppRoot(
                     },
                     feedback = feedback,
                     isSpotifyLoggedIn = isSpotifyLoggedIn,
+
                     onSpotifyClicked = { showSpotifyDialog = true },
                     onTapeSelected = { selectedTape ->
                         currentTape = selectedTape
@@ -654,6 +648,7 @@ fun RetroAppRoot(
                     isPlaying = isPlaying,
                     isPaused = isPaused,
                     isSpotifyLoggedIn = isSpotifyLoggedIn,
+                    spotifyPlayerState = spotifyPlayerState,
                     currentPositionMs = currentPositionMs,
                     totalDurationMs = totalDurationMs,
                     feedback = feedback,
@@ -699,21 +694,27 @@ fun RetroAppRoot(
                         currentPositionMs = 0L
                     },
                     onSkipPrev = {
-                        if (activeTracks.isNotEmpty()) {
+                        feedback?.onTick()
+                        isCueingTrack = true
+                        if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
+                            SpotifyRemoteManager.skipPrevious(context)
+                        } else if (activeTracks.isNotEmpty()) {
                             activeTrackIndex = if (activeTrackIndex - 1 < 0) activeTracks.size - 1 else activeTrackIndex - 1
                             val prevTrack = activeTracks[activeTrackIndex]
-                            isCueingTrack = true
-                            if (isSpotifyRemotePlaying || isPlaying) {
+                            if (isPlaying) {
                                 playTrack(prevTrack)
                             }
                         }
                     },
                     onSkip = {
-                        if (activeTracks.isNotEmpty()) {
+                        feedback?.onTick()
+                        isCueingTrack = true
+                        if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
+                            SpotifyRemoteManager.skipNext(context)
+                        } else if (activeTracks.isNotEmpty()) {
                             activeTrackIndex = (activeTrackIndex + 1) % activeTracks.size
                             val nextTrack = activeTracks[activeTrackIndex]
-                            isCueingTrack = true
-                            if (isSpotifyRemotePlaying || isPlaying) {
+                            if (isPlaying) {
                                 playTrack(nextTrack)
                             }
                         }
@@ -795,6 +796,7 @@ fun DeckScreen(
     isPlaying: Boolean,
     isPaused: Boolean,
     isSpotifyLoggedIn: Boolean = false,
+    spotifyPlayerState: com.spotify.protocol.types.PlayerState? = null,
     currentPositionMs: Long,
     totalDurationMs: Long,
     feedback: MechanicalFeedback? = null,
@@ -834,15 +836,23 @@ fun DeckScreen(
         else -> "LOCAL TAPE"
     }
 
+    val currentSpotifyTrack = spotifyPlayerState?.track
+    val isSpotifyTape = currentTape?.isSpotify == true
+
     val trackTitle = when {
         !isTapeInserted -> "PLEASE INSERT TAPE"
+        isSpotifyTape && currentSpotifyTrack != null && currentSpotifyTrack.name.isNotBlank() ->
+            currentSpotifyTrack.name
         activeTrack != null -> activeTrack.title
         else -> "EMPTY C-90"
     }
 
     val artistText = when {
         !isTapeInserted -> "----"
-        activeTrack != null -> activeTrack.artist
+        isSpotifyTape && currentSpotifyTrack != null && currentSpotifyTrack.artist.name.isNotBlank() ->
+            currentSpotifyTrack.artist.name
+        activeTrack != null && activeTrack.artist != "Spotify Playlist" -> activeTrack.artist
+        isSpotifyTape && currentTape != null -> currentTape.title
         else -> "UNKNOWN"
     }
 

@@ -69,6 +69,11 @@ object SpotifyRemoteManager {
     ) {
         if (appRemote?.isConnected == true) {
             _isConnected.value = true
+            appRemote?.playerApi?.playerState?.setResultCallback { state ->
+                if (state != null) {
+                    _playerState.value = state
+                }
+            }
             onConnected?.invoke()
             return
         }
@@ -89,6 +94,11 @@ object SpotifyRemoteManager {
                 isConnecting = false
                 appRemote = remote
                 _isConnected.value = true
+            appRemote?.playerApi?.playerState?.setResultCallback { state ->
+                if (state != null) {
+                    _playerState.value = state
+                }
+            }
                 Log.d(TAG, "SpotifyAppRemote successfully connected!")
 
                 // Subscribe to real-time player state updates (position, duration, isPaused, track info)
@@ -155,6 +165,19 @@ object SpotifyRemoteManager {
     /**
      * Plays the authentic track or playlist context without switching apps.
      */
+    fun refreshState(context: Context) {
+        val remote = appRemote
+        if (remote != null && remote.isConnected) {
+            remote.playerApi.playerState?.setResultCallback { state ->
+                if (state != null) {
+                    _playerState.value = state
+                }
+            }
+        } else if (isInstalled(context)) {
+            connect(context)
+        }
+    }
+
     fun play(
         context: Context,
         spotifyUri: String,
