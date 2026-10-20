@@ -25,6 +25,31 @@ This document captures the architectural nuances, non-obvious workarounds, and v
      ```
   *Current Stable Release*: `v0.2.0` (all subsequent development targets `0.3`).
 
+- **Direct Physical Device Deployment via ADB (Wireless & USB)**:
+  - **ADB Binary Path**: Windows does not always have `adb` in the system `PATH`. Always invoke ADB using:
+    ```powershell
+    $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+    ```
+  - **Device Auto-Detection**:
+    The developer's physical phone connects via Android Wireless Debugging (TLS/mDNS identifier starting with `adb-` or standard serial number). Avoid pushing to the emulator (`emulator-5554`) unless requested.
+  - **Single-Command Deploy & Launch (PowerShell)**:
+    ```powershell
+    $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+    # Find physical device (prioritise wireless adb-* or non-emulator device)
+    $targetDevice = (& $adb devices | Select-String -Pattern "(\S+)\s+device\b" | ForEach-Object { $_.Matches.Groups[1].Value } | Where-Object { $_ -notlike "emulator*" } | Select-Object -First 1)
+
+    if ($targetDevice) {
+        Write-Host "Deploying to device: $targetDevice"
+        & $adb -s $targetDevice install -r "Sunset-Pixels.apk"
+        # Instant-launch main activity headlessly
+        & $adb -s $targetDevice shell monkey -p com.retro.pixelplayer -c android.intent.category.LAUNCHER 1
+    } else {
+        Write-Warning "No physical Android device found connected to ADB."
+    }
+    ```
+  - **Why Android Studio's Gemini Fails**:
+    Android Studio's internal assistant often attempts to invoke raw `adb` in environments where `PATH` is stripped, or fails because multiple devices exist (phone + emulator) without passing the explicit `-s <device_id>` selector, or attempts Gradle `installDebug` which fails if target device disambiguation is missing. Always use explicit `$adb -s $targetDevice install -r ...`.
+
 ---
 
 ## 2. Project Layout & Key Files
