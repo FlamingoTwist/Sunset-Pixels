@@ -269,6 +269,16 @@ fun RetroAppRoot(
             }
     }
 
+    val cassetteVariants = remember {
+        listOf(
+            R.drawable.deck_cassette_shell_cream,
+            R.drawable.deck_cassette_shell_obsidian,
+            R.drawable.deck_cassette_shell_yellow,
+            R.drawable.deck_cassette_shell_mint,
+            R.drawable.deck_cassette_shell_crimson
+        )
+    }
+    var currentTapeShellResId by remember { mutableStateOf(cassetteVariants.random()) }
     var isTapeInserted by remember { mutableStateOf(true) }
     var isTapeInserting by remember { mutableStateOf(false) }
     var isTapeEjecting by remember { mutableStateOf(false) }
@@ -605,6 +615,7 @@ fun RetroAppRoot(
                     onSpotifyClicked = { showSpotifyDialog = true },
                     onTapeSelected = { selectedTape ->
                         currentTape = selectedTape
+                        currentTapeShellResId = cassetteVariants.random()
                         SpotifyManager.saveLastTapeId(context, selectedTape.id)
                         activeTrackIndex = 0
                         isTapeInserted = true
@@ -629,6 +640,7 @@ fun RetroAppRoot(
                     activeTrackIndex = activeTrackIndex,
                     totalTracksInTape = activeTracks.size,
                     isTapeInserted = isTapeInserted,
+                    tapeShellResId = currentTapeShellResId,
                     isInserting = isTapeInserting,
                     isEjecting = isTapeEjecting,
                     onInsertAnimationFinished = {
@@ -774,6 +786,7 @@ fun DeckScreen(
     activeTrack: Track?,
     activeTrackIndex: Int,
     totalTracksInTape: Int,
+    tapeShellResId: Int = R.drawable.deck_cassette_shell,
     isTapeInserted: Boolean,
     isInserting: Boolean = false,
     isEjecting: Boolean = false,
@@ -938,6 +951,7 @@ fun DeckScreen(
                         .offset(x = deckX, y = deckY)
                         .width(deckW),
                     isTapeInserted = isTapeInserted,
+                    shellResId = tapeShellResId,
                     isPlaying = isPlaying,
                     tapeTitle = tapeTitle,
                     tapeSubtitle = tapeSubtitle,
@@ -1077,6 +1091,7 @@ fun DeckScreen(
                         .offset(x = deckX, y = deckY)
                         .width(deckW),
                     isTapeInserted = isTapeInserted,
+                    shellResId = tapeShellResId,
                     isPlaying = isPlaying,
                     tapeTitle = tapeTitle,
                     tapeSubtitle = tapeSubtitle,

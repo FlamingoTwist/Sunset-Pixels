@@ -56,6 +56,7 @@ fun CassetteDeck(
     shellColor: Color = PixelPalette.TapeBodyWhite,
     isHomeMade: Boolean = false,
     artworkBitmap: Bitmap? = null,
+    shellResId: Int = R.drawable.deck_cassette_shell,
     isInserting: Boolean = false,
     isEjecting: Boolean = false,
     onEjectAnimationFinished: (() -> Unit)? = null,
@@ -224,7 +225,7 @@ fun CassetteDeck(
 
                 // 4. Cassette Plastic Front Shell (moves up/down with the cassette)
                 Image(
-                    painter = pixelPainterResource(id = R.drawable.deck_cassette_shell),
+                    painter = pixelPainterResource(id = shellResId),
                     contentDescription = "Cassette Shell",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.FillBounds
