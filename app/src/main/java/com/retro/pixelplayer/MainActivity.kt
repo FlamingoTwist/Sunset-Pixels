@@ -294,36 +294,13 @@ fun RetroAppRoot(
         null
     }
 
-    // React to authoritative playback updates from the Spotify App Remote SDK
-    LaunchedEffect(spotifyPlayerState) {
-        val state = spotifyPlayerState ?: return@LaunchedEffect
-        if (isSpotifyRemotePlaying) {
-            isPlaying = !state.isPaused
-            isPaused = state.isPaused
-            currentPositionMs = state.playbackPosition
-            val dur = state.track?.duration ?: 0L
-            if (dur > 0L) {
-                totalDurationMs = dur
-            }
-
-            // Sync active cassette track if Spotify auto-advanced to next track
-            val stateUri = state.track?.uri
-            if (!stateUri.isNullOrBlank() && activeTracks.isNotEmpty()) {
-                val matchIdx = activeTracks.indexOfFirst { it.spotifyUri == stateUri }
-                if (matchIdx >= 0 && matchIdx != activeTrackIndex) {
-                    activeTrackIndex = matchIdx
-                }
-            }
-        }
-    }
-
     fun playTrack(track: Track?) {
         if (track == null || !isTapeInserted) return
         val scheme = track.contentUri.scheme ?: ""
         val isSpotifyTrack = (scheme == "spotify") || (track.spotifyUri != null) || (currentTape?.isSpotify == true)
 
         if (isSpotifyTrack) {
-            // Play official authentic track directly through Spotify App Remote!
+            // Play official authentic track directly through Spotify App Remote with full playlist context!
             exoPlayer.stop()
             isSpotifyRemotePlaying = true
             isPlaying = true
@@ -335,7 +312,19 @@ fun RetroAppRoot(
                 ?: if (scheme == "spotify") track.contentUri.toString()
                 else "spotify:track:${track.id}"
 
-            SpotifyRemoteManager.play(context, uriToPlay)
+            val tape = currentTape
+            val trackIdx = activeTracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: activeTrackIndex
+            val allUris = activeTracks.mapNotNull {
+                it.spotifyUri ?: if (it.contentUri.scheme == "spotify") it.contentUri.toString() else null
+            }
+
+            SpotifyRemoteManager.play(
+                context = context,
+                spotifyUri = uriToPlay,
+                contextUri = tape?.spotifyContextUri,
+                trackIndex = trackIdx,
+                allTrackUris = allUris
+            )
         } else {
             // Local device audio track
             if (isSpotifyRemotePlaying) {
@@ -347,6 +336,61 @@ fun RetroAppRoot(
             exoPlayer.prepare()
             exoPlayer.play()
             isPaused = false
+        }
+    }
+
+    var lastAutoAdvanceTime by remember { mutableLongStateOf(0L) }
+
+    fun advanceToNextTrack() {
+        val now = System.currentTimeMillis()
+        if (now - lastAutoAdvanceTime < 1500L) return
+        lastAutoAdvanceTime = now
+        val tracks = currentTape?.tracks ?: emptyList()
+        if (tracks.isNotEmpty()) {
+            val nextIndex = if (exoPlayer.repeatMode == Player.REPEAT_MODE_ONE) {
+                activeTrackIndex
+            } else if (exoPlayer.shuffleModeEnabled && tracks.size > 1) {
+                val available = tracks.indices.filter { it != activeTrackIndex }
+                available.randomOrNull() ?: ((activeTrackIndex + 1) % tracks.size)
+            } else {
+                (activeTrackIndex + 1) % tracks.size
+            }
+            activeTrackIndex = nextIndex
+            playTrack(tracks[nextIndex])
+        }
+    }
+
+    // React to authoritative playback updates from the Spotify App Remote SDK
+    LaunchedEffect(spotifyPlayerState) {
+        val state = spotifyPlayerState ?: return@LaunchedEffect
+        if (isSpotifyRemotePlaying) {
+            val stateUri = state.track?.uri
+            val dur = state.track?.duration ?: 0L
+            if (dur > 0L) {
+                totalDurationMs = dur
+            }
+
+            // Sync active cassette track if Spotify auto-advanced natively to next track
+            if (!stateUri.isNullOrBlank() && activeTracks.isNotEmpty()) {
+                val matchIdx = activeTracks.indexOfFirst { it.spotifyUri == stateUri }
+                if (matchIdx >= 0 && matchIdx != activeTrackIndex) {
+                    activeTrackIndex = matchIdx
+                    currentPositionMs = state.playbackPosition
+                    isPlaying = !state.isPaused
+                    isPaused = state.isPaused
+                    return@LaunchedEffect
+                }
+            }
+
+            // Detect if Spotify paused because the song finished (within 2s of end)
+            if (state.isPaused && isPlaying && dur > 10_000L && state.playbackPosition >= dur - 2000L) {
+                advanceToNextTrack()
+                return@LaunchedEffect
+            }
+
+            isPlaying = !state.isPaused
+            isPaused = state.isPaused
+            currentPositionMs = state.playbackPosition
         }
     }
 
@@ -365,18 +409,9 @@ fun RetroAppRoot(
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                android.util.Log.w("PixelPlayer", "ExoPlayer error: ${error.message}")
-                val tr = currentTape?.tracks?.getOrNull(activeTrackIndex) ?: return
-                SpotifyManager.invalidateCachedStream(tr)
-                coroutineScope.launch {
-                    val fallbackUri = SpotifyManager.resolveFallbackPreviewUri(tr)
-                    if (fallbackUri != null) {
-                        val item = MediaItem.fromUri(fallbackUri)
-                        exoPlayer.setMediaItem(item)
-                        exoPlayer.prepare()
-                        exoPlayer.play()
-                    }
-                }
+                android.util.Log.w("PixelPlayer", "Local audio playback error: ${error.message}")
+                isPlaying = false
+                isPaused = false
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -423,7 +458,13 @@ fun RetroAppRoot(
             if (isSpotifyRemotePlaying) {
                 delay(250)
                 if (isPlaying && !isPaused) {
-                    currentPositionMs = (currentPositionMs + 250L).coerceAtMost(totalDurationMs)
+                    val nextPos = currentPositionMs + 250L
+                    if (totalDurationMs > 5_000L && nextPos >= totalDurationMs) {
+                        currentPositionMs = totalDurationMs
+                        advanceToNextTrack()
+                    } else {
+                        currentPositionMs = nextPos.coerceAtMost(totalDurationMs)
+                    }
                 }
             } else {
                 currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -443,9 +484,6 @@ fun RetroAppRoot(
             if (isSpotifyRemotePlaying && isPlaying && !isPaused && !isSpotifyRemoteConnected) {
                 val webState = SpotifyManager.getPlaybackState(context)
                 if (webState != null) {
-                    isPlaying = webState.isPlaying
-                    isPaused = !webState.isPlaying
-                    currentPositionMs = webState.progressMs
                     if (webState.durationMs > 0) {
                         totalDurationMs = webState.durationMs
                     }
@@ -454,7 +492,22 @@ fun RetroAppRoot(
                         val matchIdx = activeTracks.indexOfFirst { it.spotifyUri == webUri }
                         if (matchIdx >= 0 && matchIdx != activeTrackIndex) {
                             activeTrackIndex = matchIdx
+                            currentPositionMs = webState.progressMs
+                            isPlaying = webState.isPlaying
+                            isPaused = !webState.isPlaying
+                            continue
                         }
+                    }
+
+                    if (webState.isPlaying) {
+                        isPlaying = true
+                        isPaused = false
+                        currentPositionMs = webState.progressMs
+                    } else if (totalDurationMs > 10_000L && webState.progressMs >= totalDurationMs - 2500L) {
+                        advanceToNextTrack()
+                    } else {
+                        isPlaying = false
+                        isPaused = true
                     }
                 }
             }
@@ -591,12 +644,7 @@ fun RetroAppRoot(
                         if (activeTracks.isNotEmpty()) {
                             activeTrackIndex = if (activeTrackIndex - 1 < 0) activeTracks.size - 1 else activeTrackIndex - 1
                             val prevTrack = activeTracks[activeTrackIndex]
-                            if (isSpotifyRemotePlaying) {
-                                currentPositionMs = 0L
-                                totalDurationMs = prevTrack.durationMs.coerceAtLeast(30_000L)
-                                val uri = prevTrack.spotifyUri ?: if (prevTrack.contentUri.scheme == "spotify") prevTrack.contentUri.toString() else "spotify:track:${prevTrack.id}"
-                                SpotifyRemoteManager.skipPrevious(context, uri)
-                            } else if (isPlaying) {
+                            if (isSpotifyRemotePlaying || isPlaying) {
                                 playTrack(prevTrack)
                             }
                         }
@@ -605,12 +653,7 @@ fun RetroAppRoot(
                         if (activeTracks.isNotEmpty()) {
                             activeTrackIndex = (activeTrackIndex + 1) % activeTracks.size
                             val nextTrack = activeTracks[activeTrackIndex]
-                            if (isSpotifyRemotePlaying) {
-                                currentPositionMs = 0L
-                                totalDurationMs = nextTrack.durationMs.coerceAtLeast(30_000L)
-                                val uri = nextTrack.spotifyUri ?: if (nextTrack.contentUri.scheme == "spotify") nextTrack.contentUri.toString() else "spotify:track:${nextTrack.id}"
-                                SpotifyRemoteManager.skipNext(context, uri)
-                            } else if (isPlaying) {
+                            if (isSpotifyRemotePlaying || isPlaying) {
                                 playTrack(nextTrack)
                             }
                         }
@@ -833,9 +876,9 @@ fun DeckScreen(
                 // HORIZONTAL (Landscape) Layout - Matches Skin Designer 1:1
                 // 1. Cassette Door
                 val doorEl = vp.getElement("cassette_door")
-                val deckW = cw * (doorEl?.relWidth ?: 0.5246f)
-                val deckX = cw * (doorEl?.relX ?: 0.0383f)
-                val deckY = ch * (doorEl?.relY ?: 0.1092f)
+                val deckW = cw * (doorEl?.relWidth ?: 0.4883f)
+                val deckX = cw * (doorEl?.relX ?: 0.03125f)
+                val deckY = ch * (doorEl?.relY ?: 0.1826f)
 
                 CassetteDeck(
                     modifier = Modifier

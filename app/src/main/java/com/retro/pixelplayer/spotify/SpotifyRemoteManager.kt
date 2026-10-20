@@ -44,6 +44,9 @@ object SpotifyRemoteManager {
     @Volatile
     private var isConnecting = false
     private var pendingPlayUri: String? = null
+    private var pendingContextUri: String? = null
+    private var pendingTrackIndex: Int? = null
+    private var pendingTrackUris: List<String>? = null
 
     fun isInstalled(context: Context): Boolean {
         return try {
@@ -55,11 +58,12 @@ object SpotifyRemoteManager {
 
     /**
      * Binds strictly to Spotify's background service. showAuthView is ALWAYS false
-     * so that the Spotify application UI is never brought to the foreground.
+     * by default so that the Spotify application UI is never brought to the foreground.
+     * showAuthView is only passed as true when the user explicitly taps "AUTHORIZE SPOTIFY PLAYBACK" in settings.
      */
     fun connect(
         context: Context,
-        showAuthView: Boolean = true,
+        showAuthView: Boolean = false,
         onConnected: (() -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null
     ) {
@@ -78,7 +82,7 @@ object SpotifyRemoteManager {
             .showAuthView(showAuthView)
             .build()
 
-        val connectContext = if (context is android.app.Activity) context else context.applicationContext
+        val connectContext = if (showAuthView && context is android.app.Activity) context else context.applicationContext
 
         SpotifyAppRemote.connect(connectContext, params, object : Connector.ConnectionListener {
             override fun onConnected(remote: SpotifyAppRemote) {
@@ -101,8 +105,14 @@ object SpotifyRemoteManager {
                 // If a track was queued while connecting, play it now
                 val queuedUri = pendingPlayUri
                 if (queuedUri != null) {
+                    val ctx = pendingContextUri
+                    val idx = pendingTrackIndex
+                    val uris = pendingTrackUris
                     pendingPlayUri = null
-                    play(context, queuedUri)
+                    pendingContextUri = null
+                    pendingTrackIndex = null
+                    pendingTrackUris = null
+                    play(context, queuedUri, ctx, idx, uris)
                 }
 
                 onConnected?.invoke()
@@ -112,46 +122,103 @@ object SpotifyRemoteManager {
                 isConnecting = false
                 _isConnected.value = false
                 Log.w(TAG, "SpotifyAppRemote connection failure: ${throwable.message}")
+
+                // Clear pending play parameters so they don't linger
+                val queuedUri = pendingPlayUri
+                val ctx = pendingContextUri
+                val idx = pendingTrackIndex
+                val uris = pendingTrackUris
+                pendingPlayUri = null
+                pendingContextUri = null
+                pendingTrackIndex = null
+                pendingTrackUris = null
+
+                // If a track was queued, fall back 100% silently to Spotify Web API playback
+                // NEVER launch the Spotify app UI or start an Activity Intent!
+                if (queuedUri != null) {
+                    scope.launch {
+                        SpotifyManager.playSpotifyTrack(
+                            context = context,
+                            spotifyUri = queuedUri,
+                            contextUri = ctx,
+                            trackIndex = idx,
+                            allTrackUris = uris
+                        )
+                    }
+                }
+
                 onError?.invoke(throwable)
             }
         })
     }
 
     /**
-     * Plays the authentic track without switching apps.
+     * Plays the authentic track or playlist context without switching apps.
      */
-    fun play(context: Context, spotifyUri: String) {
+    fun play(
+        context: Context,
+        spotifyUri: String,
+        contextUri: String? = null,
+        trackIndex: Int? = null,
+        allTrackUris: List<String>? = null
+    ) {
         val remote = appRemote
         if (remote != null && remote.isConnected) {
-            remote.playerApi.play(spotifyUri)
-                .setErrorCallback { error ->
-                    Log.w(TAG, "playerApi.play error: ${error.message}")
-                }
+            if (!contextUri.isNullOrBlank() && trackIndex != null && trackIndex >= 0) {
+                // If playlist or album context is available, play context at trackIndex so Spotify manages the whole playlist queue!
+                remote.playerApi.skipToIndex(contextUri, trackIndex)
+                    .setErrorCallback { error ->
+                        Log.w(TAG, "skipToIndex error (${error.message}), falling back to direct play")
+                        remote.playerApi.play(spotifyUri)
+                    }
+            } else {
+                remote.playerApi.play(spotifyUri)
+                    .setErrorCallback { error ->
+                        Log.w(TAG, "playerApi.play error: ${error.message}")
+                    }
+            }
         } else {
             pendingPlayUri = spotifyUri
+            pendingContextUri = contextUri
+            pendingTrackIndex = trackIndex
+            pendingTrackUris = allTrackUris
             connect(context)
-        }
 
-        // Parallel Web API command (executed silently in background with ZERO app switch)
-        scope.launch {
-            SpotifyManager.playSpotifyTrack(context, spotifyUri)
+            // When App Remote is not yet connected, only attempt Web API playback if THIS phone is detected
+            scope.launch {
+                SpotifyManager.playSpotifyTrack(
+                    context = context,
+                    spotifyUri = spotifyUri,
+                    contextUri = contextUri,
+                    trackIndex = trackIndex,
+                    allTrackUris = allTrackUris
+                )
+            }
         }
     }
 
     fun pause(context: Context) {
-        appRemote?.playerApi?.pause()
-        scope.launch {
-            SpotifyManager.pauseSpotify(context)
+        val remote = appRemote
+        if (remote != null && remote.isConnected) {
+            remote.playerApi.pause()
+        } else {
+            dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_PAUSE)
+            scope.launch {
+                SpotifyManager.pauseSpotify(context)
+            }
         }
-        dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_PAUSE)
     }
 
     fun resume(context: Context) {
-        appRemote?.playerApi?.resume()
-        scope.launch {
-            SpotifyManager.resumeSpotify(context)
+        val remote = appRemote
+        if (remote != null && remote.isConnected) {
+            remote.playerApi.resume()
+        } else {
+            dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_PLAY)
+            scope.launch {
+                SpotifyManager.resumeSpotify(context)
+            }
         }
-        dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_PLAY)
     }
 
     fun skipNext(context: Context, nextTrackUri: String? = null) {
@@ -167,14 +234,9 @@ object SpotifyRemoteManager {
                 play(context, nextTrackUri)
             } else {
                 dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_NEXT)
-            }
-        }
-
-        scope.launch {
-            if (!nextTrackUri.isNullOrBlank()) {
-                SpotifyManager.playSpotifyTrack(context, nextTrackUri)
-            } else {
-                SpotifyManager.skipSpotifyNext(context)
+                scope.launch {
+                    SpotifyManager.skipSpotifyNext(context)
+                }
             }
         }
     }
@@ -192,14 +254,9 @@ object SpotifyRemoteManager {
                 play(context, prevTrackUri)
             } else {
                 dispatchMediaKey(context, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
-            }
-        }
-
-        scope.launch {
-            if (!prevTrackUri.isNullOrBlank()) {
-                SpotifyManager.playSpotifyTrack(context, prevTrackUri)
-            } else {
-                SpotifyManager.skipSpotifyPrev(context)
+                scope.launch {
+                    SpotifyManager.skipSpotifyPrev(context)
+                }
             }
         }
     }

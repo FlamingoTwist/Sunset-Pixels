@@ -103,3 +103,9 @@ This document captures the architectural nuances, non-obvious workarounds, and v
 - Declared in `AndroidManifest.xml` via `<meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc" />` and `androidx.car.app.minCarApiLevel`.
 - `PlaybackService.kt` extends `androidx.media3.session.MediaLibraryService` with intent filters for `androidx.media3.session.MediaLibraryService` and `android.media.browse.MediaBrowserService`.
 - Media hierarchy exposes `root` -> `Artist Shelf 📚` and `Shoe Box (Playlists) 📦` -> individual cassette albums/playlists -> playable tracks. Selecting a track on the car touchscreen triggers headless background playback for both local and Spotify cassettes.
+
+### G. Strict Invariant: Authentic Playback Only (No 30-Second Previews, No SoundCloud Fallbacks, No Masking Failures)
+- **ZERO 30-Second Snippets**: Never fall back to Spotify embed `audioPreview`, iTunes `previewUrl`, or any truncated 30-second audio files.
+- **ZERO SoundCloud / Third-Party Cover Fallbacks**: Never scrape or fuzzy-match tracks against SoundCloud, YouTube, JioSaavn, or any third-party engine. Every Spotify track MUST play the genuine track from Spotify.
+- **Fail Honestly & Transparently**: Never conceal a playback or connection failure by quietly substituting inferior audio. If App Remote or Spotify Connect is disconnected or requires authorization, display the status honestly to the user (e.g., on the LCD screen or in the Spotify Dialog) so they can reconnect or authorize.
+- **Headless & Background Invariant**: Never bring the Spotify app UI to the foreground (`startActivity` targeting `com.spotify.music` with `ACTION_VIEW` is strictly forbidden). Connection must always bind headlessly in the background (`showAuthView = false`).

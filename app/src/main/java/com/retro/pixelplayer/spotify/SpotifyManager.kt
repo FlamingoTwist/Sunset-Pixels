@@ -60,10 +60,6 @@ object SpotifyManager {
     const val DEFAULT_CLIENT_ID = "a65f41a4d09c4187af8257c4903b991a"
     const val STREAM_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
 
-    @Volatile
-    private var soundCloudClientId: String = "tHVbSbDP4TaoMbPppngv6Tdry83vNbMQ"
-
-    private val resolvedStreamCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Uri, Long>>()
 
     private const val SCOPES =
         "user-read-private playlist-read-private playlist-read-collaborative " +
@@ -351,7 +347,6 @@ object SpotifyManager {
                     val trTitle = tr.optString("name", "Track")
                     val trDur = tr.optLong("duration_ms", 180000L)
                     val trUri = tr.optString("uri", "")
-                    val previewUrl = tr.optString("preview_url", "")
 
                     val albumObj = tr.optJSONObject("album")
                     val albumName = albumObj?.optString("name", "Spotify Singles") ?: "Spotify Singles"
@@ -405,6 +400,7 @@ object SpotifyManager {
             }
 
             // 3. Fetch Saved Albums -> Artist Shelf Tapes with Pixelated Cover Art
+            val albumUris = mutableMapOf<String, String>()
             try {
                 onProgress("FETCHING SAVED ALBUMS & PIXELATING ART...")
                 val albumsJson = getJson("https://api.spotify.com/v1/me/albums?limit=12", token)
@@ -416,6 +412,10 @@ object SpotifyManager {
                     val albumName = albumObj.optString("name", "Unknown Album")
                     val artistsArr = albumObj.optJSONArray("artists")
                     val artistName = artistsArr?.optJSONObject(0)?.optString("name") ?: "Spotify Artist"
+                    val albUri = albumObj.optString("uri", "")
+                    if (albUri.isNotBlank()) {
+                        albumUris["${artistName}_$albumName"] = albUri
+                    }
 
                     val imagesArr = albumObj.optJSONArray("images")
                     val imageUrl = if (imagesArr != null && imagesArr.length() > 0) {
@@ -539,6 +539,7 @@ object SpotifyManager {
                 artistTracks.groupBy { it.album }.forEach { (album, albumTracks) ->
                     val albHash = kotlin.math.abs((artist + album).hashCode())
                     val art = albumArtworkCache["${artist}_$album"] ?: firstArt
+                    val albUri = albumUris["${artist}_$album"]
                     list.add(
                         TapeItem(
                             id = "spotify_album_${artist}_$album",
@@ -550,7 +551,8 @@ object SpotifyManager {
                             labelColorHex = labelPalette[albHash % labelPalette.size],
                             isHomeMade = false,
                             artworkBitmap = art,
-                            isSpotify = true
+                            isSpotify = true,
+                            spotifyContextUri = albUri
                         )
                     )
                 }
@@ -828,286 +830,6 @@ object SpotifyManager {
         return result
     }
 
-    fun invalidateCachedStream(track: Track) {
-        val cacheKey = "${track.artist.lowercase().trim()}|${track.title.lowercase().trim()}"
-        resolvedStreamCache.remove(cacheKey)
-    }
-
-    /**
-     * Resolves a FULL-LENGTH playable HTTP/HLS audio stream for a Spotify track
-     * so ExoPlayer plays the entire song from start to finish (never truncated at 30 seconds).
-     */
-    suspend fun resolveTrackStreamUri(track: Track): Uri? = withContext(Dispatchers.IO) {
-        val existingScheme = track.contentUri.scheme ?: ""
-        if (existingScheme == "content" || existingScheme == "file") {
-            return@withContext track.contentUri
-        }
-
-        val cacheKey = "${track.artist.lowercase().trim()}|${track.title.lowercase().trim()}"
-        val cached = resolvedStreamCache[cacheKey]
-        if (cached != null && System.currentTimeMillis() < cached.second) {
-            return@withContext cached.first
-        }
-
-        // 1. Primary: Resolve full-length audio stream (SoundCloud unencrypted HLS/MP3 + JioSaavn 320kbps M4A)
-        val fullStreamUri = resolveFullLengthAudioStream(track.artist, track.title, track.durationMs)
-        if (fullStreamUri != null) {
-            // Cache signed stream URL for 10 minutes
-            resolvedStreamCache[cacheKey] = fullStreamUri to (System.currentTimeMillis() + 10 * 60 * 1000L)
-            return@withContext fullStreamUri
-        }
-
-        // 2. Fallback: Spotify CDN embed stream / iTunes stream if full-length lookup failed
-        resolveFallbackPreviewUri(track)
-    }
-
-    suspend fun resolveFallbackPreviewUri(track: Track): Uri? = withContext(Dispatchers.IO) {
-        val spUri = track.spotifyUri ?: track.contentUri.toString()
-        val trackId = spUri.substringAfterLast("spotify:track:", "").trim()
-        if (trackId.isNotEmpty() && !trackId.contains(":")) {
-            try {
-                val html = getRawString("https://open.spotify.com/embed/track/$trackId")
-                val regex = Regex("\"audioPreview\"\\s*:\\s*\\{[^}]*\"url\"\\s*:\\s*\"(https:[^\"]+)\"")
-                val match = regex.find(html)
-                if (match != null) {
-                    val streamUrl = match.groupValues[1].replace("\\/", "/")
-                    return@withContext Uri.parse(streamUrl)
-                }
-            } catch (_: Exception) {
-            }
-        }
-        try {
-            val cleanQuery = URLEncoder.encode("${track.artist} ${track.title}", "UTF-8")
-            val itunesStr = getRawString("https://itunes.apple.com/search?term=$cleanQuery&media=music&entity=song&limit=3")
-            val results = JSONObject(itunesStr).optJSONArray("results")
-            if (results != null && results.length() > 0) {
-                val preview = results.optJSONObject(0)?.optString("previewUrl", "") ?: ""
-                if (preview.startsWith("http")) {
-                    return@withContext Uri.parse(preview)
-                }
-            }
-        } catch (_: Exception) {
-        }
-        null
-    }
-
-    /**
-     * Resolves a full-length unencrypted audio stream via SoundCloud API v2 (progressive MP3 or
-     * unencrypted fMP4 HLS .m3u8) with fallback to JioSaavn 320kbps AAC MP4.
-     */
-    private fun resolveFullLengthAudioStream(artist: String, title: String, expectedDurationMs: Long): Uri? {
-        // Tier 1: SoundCloud v2 Full-Length Stream
-        val scUri = resolveSoundCloudStream(artist, title, expectedDurationMs, allowRefresh = true)
-        if (scUri != null) {
-            return scUri
-        }
-
-        // Tier 2: JioSaavn 320kbps MP4 Stream (filtered for authentic artist matches)
-        val saavnUri = resolveJioSaavnStream(artist, title, expectedDurationMs)
-        if (saavnUri != null) {
-            return saavnUri
-        }
-
-        return null
-    }
-
-    private fun resolveSoundCloudStream(
-        artist: String,
-        title: String,
-        expectedDurationMs: Long,
-        allowRefresh: Boolean
-    ): Uri? {
-        try {
-            val cleanTitle = title
-                .replace(Regex("\\s*\\((feat\\.|ft\\.|with )[^)]*\\)", RegexOption.IGNORE_CASE), "")
-                .replace(Regex("\\s*-\\s*(\\d{4}\\s*)?Remaster(ed)?.*", RegexOption.IGNORE_CASE), "")
-                .trim()
-            val query = URLEncoder.encode("$artist $cleanTitle", "UTF-8")
-            val clientId = soundCloudClientId
-            val searchUrl = "https://api-v2.soundcloud.com/search/tracks?q=$query&client_id=$clientId&limit=30"
-
-            val searchStr = try {
-                getRawString(searchUrl)
-            } catch (e: Exception) {
-                if (allowRefresh && (e.message?.contains("401") == true || e.message?.contains("403") == true)) {
-                    if (refreshSoundCloudClientId()) {
-                        return resolveSoundCloudStream(artist, title, expectedDurationMs, allowRefresh = false)
-                    }
-                }
-                return null
-            }
-
-            val collection = JSONObject(searchStr).optJSONArray("collection") ?: return null
-            val reqLower = "$artist $title".lowercase()
-            val artistLower = artist.lowercase().trim()
-            val titleLower = cleanTitle.lowercase().trim()
-
-            val penaltyWords = listOf(
-                "remix", "mashup", "bootleg", "nightcore", "hardstyle", "techno",
-                "flip", "slowed", "reverb", "cover", "karaoke", "instrumental",
-                "8d", "sped up", "gym motivation"
-            )
-
-            var bestScore = -999999.0
-            var bestTranscodingUrl: String? = null
-            var bestTrackAuth: String? = null
-            var bestTrackLabel = ""
-
-            for (i in 0 until collection.length()) {
-                val trackObj = collection.optJSONObject(i) ?: continue
-                val durMs = trackObj.optLong("duration", 0L)
-                val policy = trackObj.optString("policy", "")
-                if (durMs < 60_000L || policy == "SNIP" || policy == "BLOCK") continue
-
-                val transcodings = trackObj.optJSONObject("media")?.optJSONArray("transcodings") ?: continue
-                var chosenTcUrl: String? = null
-
-                // Prefer progressive MP3 first, then unencrypted HLS audio/mp4 or audio/mpeg
-                for (j in 0 until transcodings.length()) {
-                    val tc = transcodings.optJSONObject(j) ?: continue
-                    val fmt = tc.optJSONObject("format") ?: continue
-                    val proto = fmt.optString("protocol", "")
-                    val mime = fmt.optString("mime_type", "")
-                    val tcUrl = tc.optString("url", "")
-                    if (tcUrl.isBlank()) continue
-
-                    if (proto == "progressive" && mime.contains("mpeg")) {
-                        chosenTcUrl = tcUrl
-                        break
-                    } else if (proto == "hls" && !mime.contains("mpegurl") && (mime.contains("mp4") || mime.contains("mpeg") || mime.contains("ogg"))) {
-                        if (chosenTcUrl == null) {
-                            chosenTcUrl = tcUrl
-                        }
-                    }
-                }
-
-                if (chosenTcUrl == null) continue
-
-                val candTitle = trackObj.optString("title", "")
-                val candUser = trackObj.optJSONObject("user")?.optString("username", "") ?: ""
-                val candCombined = "$candTitle $candUser".lowercase()
-
-                val durDiffSec = kotlin.math.abs(durMs - expectedDurationMs) / 1000.0
-                var score = 1000.0 - (durDiffSec * 4.0)
-
-                if (durDiffSec <= 8.0) score += 150.0
-                if (candCombined.contains(artistLower)) score += 80.0
-                if (candCombined.contains(titleLower)) score += 100.0
-
-                for (pw in penaltyWords) {
-                    if (candCombined.contains(pw) && !reqLower.contains(pw)) {
-                        score -= 220.0
-                    }
-                }
-
-                if (score > bestScore) {
-                    bestScore = score
-                    bestTranscodingUrl = chosenTcUrl
-                    bestTrackAuth = trackObj.optString("track_authorization", "")
-                    bestTrackLabel = "$candTitle ($durMs ms)"
-                }
-            }
-
-            if (bestTranscodingUrl != null) {
-                val sep = if (bestTranscodingUrl.contains("?")) "&" else "?"
-                val authParam = if (!bestTrackAuth.isNullOrBlank()) {
-                    "&track_authorization=${URLEncoder.encode(bestTrackAuth, "UTF-8")}"
-                } else ""
-                val resolveUrl = "${bestTranscodingUrl}${sep}client_id=$clientId$authParam"
-                val streamJson = JSONObject(getRawString(resolveUrl))
-                val finalStreamUrl = streamJson.optString("url", "")
-                if (finalStreamUrl.startsWith("http")) {
-                    android.util.Log.d("SpotifySync", "Resolved full-length SoundCloud stream for '$artist - $title' -> $bestTrackLabel")
-                    return Uri.parse(finalStreamUrl)
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("SpotifySync", "SoundCloud stream resolve failed for '$artist - $title': ${e.message}")
-        }
-        return null
-    }
-
-    private fun refreshSoundCloudClientId(): Boolean {
-        return try {
-            val html = getRawString("https://soundcloud.com")
-            val scriptRegex = Regex("https://a-v2\\.sndcdn\\.com/assets/[^\"]+\\.js")
-            val scripts = scriptRegex.findAll(html).map { it.value }.toList()
-            val idRegex = Regex("client_id\\s*[:=]\\s*\"([a-zA-Z0-9]{32})\"")
-            for (scriptUrl in scripts.takeLast(5).reversed()) {
-                val js = getRawString(scriptUrl)
-                val match = idRegex.find(js)
-                if (match != null) {
-                    soundCloudClientId = match.groupValues[1]
-                    return true
-                }
-            }
-            false
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun resolveJioSaavnStream(artist: String, title: String, expectedDurationMs: Long): Uri? {
-        try {
-            val query = URLEncoder.encode("$artist $title", "UTF-8")
-            val url = "https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=8&p=1&q=$query"
-            val respStr = getRawString(url)
-            val results = JSONObject(respStr).optJSONArray("results") ?: return null
-            val artistLower = artist.lowercase().trim()
-
-            for (i in 0 until results.length()) {
-                val item = results.optJSONObject(i) ?: continue
-                val itemTitle = item.optString("title", "").lowercase()
-                val itemSub = item.optString("subtitle", "").lowercase()
-                if (itemTitle.contains("karaoke") || itemTitle.contains("originally performed") || itemTitle.contains("tribute")) {
-                    continue
-                }
-                val moreInfo = item.optJSONObject("more_info") ?: continue
-                val durSec = moreInfo.optLong("duration", 0L)
-                if (durSec < 60L) continue
-                val durDiffSec = kotlin.math.abs((durSec * 1000L) - expectedDurationMs) / 1000.0
-                if (durDiffSec > 25.0) continue
-
-                val artistsArr = moreInfo.optJSONObject("artistMap")?.optJSONArray("primary_artists")
-                var artistMatched = itemSub.contains(artistLower)
-                if (!artistMatched && artistsArr != null) {
-                    for (a in 0 until artistsArr.length()) {
-                        val aName = artistsArr.optJSONObject(a)?.optString("name", "")?.lowercase() ?: ""
-                        if (aName.contains(artistLower) || artistLower.contains(aName)) {
-                            artistMatched = true
-                            break
-                        }
-                    }
-                }
-                if (!artistMatched) continue
-
-                val encMedia = moreInfo.optString("encrypted_media_url", "")
-                if (encMedia.isNotBlank()) {
-                    val decryptedUrl = decryptSaavnMediaUrl(encMedia)
-                    if (decryptedUrl != null && decryptedUrl.startsWith("http")) {
-                        return Uri.parse(decryptedUrl)
-                    }
-                }
-            }
-        } catch (_: Exception) {
-        }
-        return null
-    }
-
-    private fun decryptSaavnMediaUrl(encryptedBase64: String): String? {
-        return try {
-            val keyBytes = "38346591".toByteArray(Charsets.UTF_8)
-            val secretKey = javax.crypto.spec.SecretKeySpec(keyBytes, "DES")
-            val cipher = javax.crypto.Cipher.getInstance("DES/ECB/PKCS5Padding")
-            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey)
-            val cipherBytes = Base64.decode(encryptedBase64.trim(), Base64.DEFAULT)
-            val plainBytes = cipher.doFinal(cipherBytes)
-            String(plainBytes, Charsets.UTF_8).replace("_96.mp4", "_320.mp4")
-        } catch (_: Exception) {
-            null
-        }
-    }
-
     private fun getRawString(urlString: String): String {
         val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
@@ -1211,54 +933,124 @@ object SpotifyManager {
     }
 
     /**
-     * Triggers playback of a Spotify track via Spotify Connect Web API.
-     * Automatically targets the device if no active playback session currently exists.
+     * Locates strictly this local Android device (Smartphone or Tablet) from the Spotify Connect
+     * devices list. NEVER matches smart speakers, speaker groups, Echoes, Google Homes, TVs, or
+     * other remote household devices.
      */
-    suspend fun playSpotifyTrack(context: Context, spotifyUri: String): Boolean = withContext(Dispatchers.IO) {
+    fun findLocalDevice(context: Context, devices: List<SpotifyDevice>): SpotifyDevice? {
+        if (devices.isEmpty()) return null
+
+        val model = android.os.Build.MODEL.trim()
+        val deviceName = android.os.Build.DEVICE.trim()
+        val product = android.os.Build.PRODUCT.trim()
+
+        val sysName = try {
+            android.provider.Settings.Global.getString(context.contentResolver, "device_name")
+                ?: android.provider.Settings.System.getString(context.contentResolver, "bluetooth_name")
+                ?: ""
+        } catch (_: Exception) { "" }.trim()
+
+        // Strictly reject any device type that is not a phone or tablet,
+        // and reject any device with speaker/group keywords in its name.
+        val validLocalDevices = devices.filter { d ->
+            val isPhoneOrTablet = d.type.equals("Smartphone", ignoreCase = true) ||
+                                  d.type.equals("Tablet", ignoreCase = true)
+            val nameLower = d.name.lowercase()
+            val isNotSpeakerOrGroup = !nameLower.contains("group") &&
+                                      !nameLower.contains("everywhere") &&
+                                      !nameLower.contains("all devices") &&
+                                      !nameLower.contains("speaker") &&
+                                      !nameLower.contains("echo") &&
+                                      !nameLower.contains("nest") &&
+                                      !nameLower.contains("google home") &&
+                                      !nameLower.contains("sonos") &&
+                                      !nameLower.contains("tv") &&
+                                      !nameLower.contains("cast") &&
+                                      !nameLower.contains("audio") &&
+                                      !nameLower.contains("alexa")
+
+            isPhoneOrTablet && isNotSpeakerOrGroup
+        }
+
+        if (validLocalDevices.isEmpty()) {
+            android.util.Log.d("SpotifyDevice", "No local phone/tablet found among ${devices.size} Connect devices (rejected remote speakers).")
+            return null
+        }
+
+        // 1. Highest priority: Name match with system device name or Android model (e.g. "Pixel 8")
+        val nameMatch = validLocalDevices.firstOrNull { d ->
+            val dNameLower = d.name.lowercase()
+            (sysName.isNotBlank() && dNameLower == sysName.lowercase()) ||
+            (model.isNotBlank() && (dNameLower.contains(model.lowercase()) || model.lowercase().contains(dNameLower))) ||
+            (deviceName.isNotBlank() && dNameLower.contains(deviceName.lowercase())) ||
+            (product.isNotBlank() && dNameLower.contains(product.lowercase()))
+        }
+        if (nameMatch != null) return nameMatch
+
+        // 2. Active Smartphone
+        val activePhone = validLocalDevices.firstOrNull { it.isActive && it.type.equals("Smartphone", ignoreCase = true) }
+        if (activePhone != null) return activePhone
+
+        // 3. Any Smartphone in the list
+        val anyPhone = validLocalDevices.firstOrNull { it.type.equals("Smartphone", ignoreCase = true) }
+        if (anyPhone != null) return anyPhone
+
+        // 4. Any Tablet in the list
+        return validLocalDevices.firstOrNull()
+    }
+
+    /**
+     * Triggers playback of a Spotify track via Spotify Connect Web API.
+     * EXCLUSIVELY targets this phone (device_id). NEVER sends untargeted play commands
+     * to prevent audio blasting to household smart speakers or "All Devices" groups.
+     */
+    suspend fun playSpotifyTrack(
+        context: Context,
+        spotifyUri: String,
+        contextUri: String? = null,
+        trackIndex: Int? = null,
+        allTrackUris: List<String>? = null
+    ): Boolean = withContext(Dispatchers.IO) {
         val token = getValidAccessToken(context) ?: return@withContext false
         try {
             val body = JSONObject().apply {
-                if (spotifyUri.startsWith("spotify:track:")) {
+                if (!contextUri.isNullOrBlank()) {
+                    put("context_uri", contextUri)
+                    if (trackIndex != null && trackIndex >= 0) {
+                        put("offset", JSONObject().put("position", trackIndex))
+                    } else if (spotifyUri.startsWith("spotify:track:")) {
+                        put("offset", JSONObject().put("uri", spotifyUri))
+                    }
+                } else if (!allTrackUris.isNullOrEmpty()) {
+                    val arr = JSONArray()
+                    allTrackUris.take(100).forEach { arr.put(it) }
+                    put("uris", arr)
+                    val pos = trackIndex ?: allTrackUris.indexOf(spotifyUri).takeIf { it >= 0 } ?: 0
+                    put("offset", JSONObject().put("position", pos))
+                } else if (spotifyUri.startsWith("spotify:track:")) {
                     put("uris", JSONArray().put(spotifyUri))
                 } else {
                     put("context_uri", spotifyUri)
                 }
             }.toString()
 
-            // 1. First attempt: standard play request to active device
-            var code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/play", token, body)
-            if (code in 200..299) {
-                return@withContext true
-            }
-
-            // 2. If no active session (404), target available devices (e.g. Smartphone / Pixel)
+            // Find strictly THIS local phone among available Spotify Connect devices
             val devices = getAvailableDevices(context)
-            val target = devices.firstOrNull { it.isActive }
-                ?: devices.firstOrNull { it.type.equals("Smartphone", ignoreCase = true) }
-                ?: devices.firstOrNull()
+            val localPhone = findLocalDevice(context, devices)
 
-            if (target != null) {
-                code = sendPlayerRequest(
+            if (localPhone != null) {
+                // EXCLUSIVELY target this phone device! NEVER send untargeted /play request!
+                val code = sendPlayerRequest(
                     "PUT",
-                    "https://api.spotify.com/v1/me/player/play?device_id=${target.id}",
+                    "https://api.spotify.com/v1/me/player/play?device_id=${localPhone.id}",
                     token,
                     body
                 )
                 if (code in 200..299) {
                     return@withContext true
                 }
-            }
-
-            // 3. Fallback: Wake up Spotify via Intent
-            try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(spotifyUri)).apply {
-                    setPackage("com.spotify.music")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                context.startActivity(intent)
-                return@withContext true
-            } catch (e: Exception) {
-                android.util.Log.w("SpotifyPlay", "Intent fallback error: ${e.message}")
+            } else {
+                android.util.Log.d("SpotifyPlay", "Phone not yet online in Spotify Connect; skipping Web API to protect household speakers.")
             }
 
             false
@@ -1280,17 +1072,17 @@ object SpotifyManager {
     suspend fun resumeSpotify(context: Context): Boolean = withContext(Dispatchers.IO) {
         val token = getValidAccessToken(context) ?: return@withContext false
         try {
-            var code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/play", token, null)
-            if (code in 200..299) return@withContext true
-
             val devices = getAvailableDevices(context)
-            val target = devices.firstOrNull { it.isActive }
-                ?: devices.firstOrNull { it.type.equals("Smartphone", ignoreCase = true) }
-                ?: devices.firstOrNull()
+            val localPhone = findLocalDevice(context, devices)
 
-            if (target != null) {
-                code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/play?device_id=${target.id}", token, null)
-                if (code in 200..299) return@withContext true
+            if (localPhone != null) {
+                val code = sendPlayerRequest(
+                    "PUT",
+                    "https://api.spotify.com/v1/me/player/play?device_id=${localPhone.id}",
+                    token,
+                    null
+                )
+                return@withContext (code in 200..299)
             }
             false
         } catch (_: Exception) {

@@ -547,25 +547,16 @@
 
   .cassette-mock-inner .tape-spool {
     position: absolute;
-    width: 12% !important;
+    width: 11.6% !important;
     height: auto !important;
     aspect-ratio: 1;
-    top: 45.7%;
+    top: 57.3%;
     transform: translate(-50%, -50%);
     transform-origin: center center;
     image-rendering: pixelated;
   }
-  .cassette-mock-inner .tape-spool.left { left: 33.1%; }
-  .cassette-mock-inner .tape-spool.right { left: 66.5%; }
-
-  .cassette-mock-inner .tape-spool.spinning {
-    animation: rotateSpool 2.5s linear infinite;
-  }
-
-  @keyframes rotateSpool {
-    from { transform: translate(-50%, -50%) rotate(0deg); }
-    to { transform: translate(-50%, -50%) rotate(360deg); }
-  }
+  .cassette-mock-inner .tape-spool.left { left: 32.2%; }
+  .cassette-mock-inner .tape-spool.right { left: 68.2%; }
 
   /* LCD Text Mock */
   .lcd-content {
@@ -959,7 +950,7 @@
 
 <script>
 // --- Configuration & Default Presets ---
-const STORAGE_KEY = 'sunset_pixels_skin_draft_v2';
+const STORAGE_KEY = 'sunset_soundwaves_skin_v3';
 
 const VIEWPORTS = {
   portrait: {
@@ -995,7 +986,7 @@ const DEFAULT_SKIN = {
     { id: 'btn_eject', name: 'Eject Door', sprite: 'btn_eject_unpressed.png', x: 210, y: 748, w: 72, h: 44 }
   ],
   landscape: [
-    { id: 'cassette_door', name: 'Cassette Door', sprite: 'chassis_tape_door_frame.png', x: 35, y: 45, w: 480, h: 290, isCassette: true },
+    { id: 'cassette_door', name: 'Cassette Door', sprite: 'chassis_tape_door_frame.png', x: 29, y: 75, w: 447, h: 258, isCassette: true },
     { id: 'lcd_display', name: 'LCD Display', sprite: 'chassis_lcd_frame.png', x: 540, y: 45, w: 340, h: 170, isLcd: true },
     { id: 'speaker_vents', name: 'Speaker Vents', sprite: 'chassis_speaker_vents.png', x: 540, y: 228, w: 340, h: 36 },
     { id: 'switch_shuffle', name: 'Shuffle Switch', sprite: 'switch_shuffle_off.png', x: 540, y: 280, w: 60, h: 30 },
@@ -1018,6 +1009,8 @@ let selectedElementIds = new Set();
 let zoomLevel = 0.85;
 let isSimulating = false;
 let simInterval = null;
+let simCogStep = 0;
+let cogInterval = null;
 let simSeconds = 165;
 let dragContext = null;
 let marqueeContext = null;
@@ -1252,10 +1245,12 @@ function renderElements() {
     if (el.isCassette) {
       const mock = document.createElement('div');
       mock.className = 'cassette-mock-inner';
+      const leftSrc = (isSimulating && simCogStep === 1) ? window.ASSETS['cog_l_rot.png'] : window.ASSETS['cog_l_norm.png'];
+      const rightSrc = (isSimulating && simCogStep === 1) ? window.ASSETS['cog_r_norm.png'] : window.ASSETS['cog_r_rot.png'];
       mock.innerHTML = `
-        <img src="${window.ASSETS['deck_cassette_base.png'] || ''}" style="position: absolute; width: 100%; height: 100%; opacity: 0.95; top: 0; left: 0;">
-        <img class="tape-spool left ${isSimulating ? 'spinning' : ''}" src="${window.ASSETS['spinner_hub_left.png'] || ''}">
-        <img class="tape-spool right ${isSimulating ? 'spinning' : ''}" src="${window.ASSETS['spinner_hub_right.png'] || ''}">
+        <img src="${window.ASSETS['deck_cassette_base.png'] || ''}" style="position: absolute; width: 100%; height: 100%; opacity: 0.95; top: 0; left: 0; image-rendering: pixelated;">
+        <img class="tape-spool left" src="${leftSrc || ''}">
+        <img class="tape-spool right" src="${rightSrc || ''}">
       `;
       canvasItem.appendChild(mock);
     }
@@ -1921,8 +1916,20 @@ function toggleSimulation() {
       const ss = String(simSeconds % 60).padStart(2, '0');
       document.querySelectorAll('.lcd-time-row span:last-child').forEach(s => s.textContent = `${mm}:${ss} / 04:15`);
     }, 1000);
+
+    cogInterval = setInterval(() => {
+      simCogStep = (simCogStep + 1) % 2;
+      const leftCog = document.querySelector('.tape-spool.left');
+      const rightCog = document.querySelector('.tape-spool.right');
+      if (leftCog && rightCog) {
+        leftCog.src = simCogStep === 0 ? (window.ASSETS['cog_l_norm.png'] || '') : (window.ASSETS['cog_l_rot.png'] || '');
+        rightCog.src = simCogStep === 0 ? (window.ASSETS['cog_r_rot.png'] || '') : (window.ASSETS['cog_r_norm.png'] || '');
+      }
+    }, 150);
   } else {
     clearInterval(simInterval);
+    clearInterval(cogInterval);
+    simCogStep = 0;
   }
   renderElements();
 }

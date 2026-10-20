@@ -185,14 +185,14 @@
           "id": "cassette_door",
           "name": "Cassette Door",
           "sprite": "chassis_tape_door_frame.png",
-          "x": 35,
-          "y": 45,
-          "width": 480,
-          "height": 290,
-          "relX": 0.0383,
-          "relY": 0.1092,
-          "relWidth": 0.5246,
-          "relHeight": 0.7039
+          "x": 29,
+          "y": 75,
+          "width": 447,
+          "height": 258,
+          "relX": 0.03125,
+          "relY": 0.1826,
+          "relWidth": 0.4883,
+          "relHeight": 0.6261
         },
         {
           "id": "lcd_display",

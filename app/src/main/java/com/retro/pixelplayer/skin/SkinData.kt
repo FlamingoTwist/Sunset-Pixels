@@ -111,7 +111,7 @@ object SkinManager {
         )
 
         val landscapeMap = mapOf(
-            "cassette_door" to SkinElement("cassette_door", "Cassette Door", "chassis_tape_door_frame.png", 35f, 45f, 480f, 290f, 0.0383f, 0.1092f, 0.5246f, 0.7039f),
+            "cassette_door" to SkinElement("cassette_door", "Cassette Door", "chassis_tape_door_frame.png", 16f, 42f, 250f, 144f, 0.03125f, 0.1826f, 0.4883f, 0.6261f),
             "lcd_display" to SkinElement("lcd_display", "LCD Display", "chassis_lcd_frame.png", 530f, 64f, 340f, 170f, 0.5792f, 0.1553f, 0.3716f, 0.4126f),
             "speaker_vents" to SkinElement("speaker_vents", "Speaker Vents", "chassis_speaker_vents.png", 110f, 351f, 340f, 36f, 0.1202f, 0.8519f, 0.3716f, 0.0874f),
             "switch_shuffle" to SkinElement("switch_shuffle", "Shuffle Switch", "switch_shuffle_off.png", 609f, 350f, 60f, 30f, 0.6656f, 0.8495f, 0.0656f, 0.0728f),

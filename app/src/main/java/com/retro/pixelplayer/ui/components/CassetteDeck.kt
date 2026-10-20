@@ -60,27 +60,23 @@ fun CassetteDeck(
     artworkBitmap: Bitmap? = null,
     onEjectOrInsert: () -> Unit
 ) {
-    // Stepped ratchet mechanical rotation (not smoothly)
+    // Stepped alternating cog rotation (out of phase between L and R)
     var stepCount by remember { mutableStateOf(0) }
     LaunchedEffect(isPlaying, isTapeInserted) {
         if (isPlaying && isTapeInserted) {
             while (true) {
-                delay(90L) // Mechanical discrete step every 90ms
-                stepCount = (stepCount + 1) % 24
+                delay(150L) // Mechanical discrete step every 150ms
+                stepCount = (stepCount + 1) % 2
             }
+        } else {
+            stepCount = 0
         }
-    }
-
-    val currentRotation = if (isPlaying && isTapeInserted) {
-        stepCount * 15f // 15 degrees per chunky mechanical jump
-    } else {
-        0f
     }
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(1024f / 593f)
+            .aspectRatio(250f / 144f)
             .clickable { onEjectOrInsert() },
         contentAlignment = Alignment.TopStart
     ) {
@@ -100,7 +96,7 @@ fun CassetteDeck(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = 20.dp),
+                    .padding(bottom = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -129,47 +125,46 @@ fun CassetteDeck(
                 contentScale = ContentScale.FillBounds
             )
 
-            // Superimposed Stepped Rotating Spinners (Left & Right)
-            // Left Hub: true center = (339, 271), diameter = 111 in 1024x593
-            // Right Hub: true center = (681, 271), diameter = 111 in 1024x593
-            val spinnerSize = deckWidth * (111f / 1024f)
+            // Alternating Mechanical Cogs (Cog R Rot when Cog L is normal, and vice versa)
+            // Left Hub: center = (83, 66) in 250x144, size = 29x29
+            // Right Hub: center = (163, 66) in 250x144, size = 29x29
+            val spinnerSize = deckWidth * (29f / 250f)
 
-            // Left Spinner - rotates cleanly around true center with zero oscillation
-            val leftOffsetX = deckWidth * (339f / 1024f) - (spinnerSize / 2f)
-            val leftOffsetY = deckHeight * (271f / 593f) - (spinnerSize / 2f)
+            val leftOffsetX = deckWidth * (83f / 250f) - (spinnerSize / 2f)
+            val leftOffsetY = deckHeight * (66f / 144f) - (spinnerSize / 2f)
+
+            val rightOffsetX = deckWidth * (163f / 250f) - (spinnerSize / 2f)
+            val rightOffsetY = deckHeight * (66f / 144f) - (spinnerSize / 2f)
+
+            val leftCogRes = if (stepCount == 0) R.drawable.cog_l_norm else R.drawable.cog_l_rot
+            val rightCogRes = if (stepCount == 0) R.drawable.cog_r_rot else R.drawable.cog_r_norm
 
             Image(
-                painter = painterResource(id = R.drawable.spinner_hub_left),
+                painter = painterResource(id = leftCogRes),
                 contentDescription = "Left Tape Spool",
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .offset(x = leftOffsetX, y = leftOffsetY)
-                    .size(spinnerSize)
-                    .rotate(currentRotation),
+                    .size(spinnerSize),
                 contentScale = ContentScale.Fit
             )
 
-            // Right Spinner - rotates cleanly around true center with zero oscillation
-            val rightOffsetX = deckWidth * (681f / 1024f) - (spinnerSize / 2f)
-            val rightOffsetY = deckHeight * (271f / 593f) - (spinnerSize / 2f)
-
             Image(
-                painter = painterResource(id = R.drawable.spinner_hub_right),
+                painter = painterResource(id = rightCogRes),
                 contentDescription = "Right Tape Spool",
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .offset(x = rightOffsetX, y = rightOffsetY)
-                    .size(spinnerSize)
-                    .rotate(currentRotation),
+                    .size(spinnerSize),
                 contentScale = ContentScale.Fit
             )
 
-            // Superimposed Text on Tape Label
-            // Label bounding box in 1024x593: X=[176, 832], Y=[111, 219]
-            val labelLeft = deckWidth * (182f / 1024f)
-            val labelTop = deckHeight * (116f / 593f)
-            val labelWidth = deckWidth * (644f / 1024f)
-            val labelHeight = deckHeight * (72f / 593f)
+            // Superimposed Text on Tape Label (Matching Ruled Write-in Line)
+            // Bounding box in 250x144: X=[44, 204], Y=[24, 42]
+            val labelLeft = deckWidth * (44f / 250f)
+            val labelTop = deckHeight * (24f / 144f)
+            val labelWidth = deckWidth * (160f / 250f)
+            val labelHeight = deckHeight * (18f / 144f)
 
             Box(
                 modifier = Modifier
