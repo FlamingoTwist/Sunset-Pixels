@@ -246,7 +246,13 @@ object SpotifyRemoteManager {
             if (!nextTrackUri.isNullOrBlank()) {
                 remote.playerApi.play(nextTrackUri)
             } else {
-                remote.playerApi.skipNext()
+                remote.playerApi.skipNext().setResultCallback {
+                    remote.playerApi.playerState?.setResultCallback { state ->
+                        if (state != null) {
+                            _playerState.value = state
+                        }
+                    }
+                }
             }
         } else {
             if (!nextTrackUri.isNullOrBlank()) {
@@ -266,7 +272,13 @@ object SpotifyRemoteManager {
             if (!prevTrackUri.isNullOrBlank()) {
                 remote.playerApi.play(prevTrackUri)
             } else {
-                remote.playerApi.skipPrevious()
+                remote.playerApi.skipPrevious().setResultCallback {
+                    remote.playerApi.playerState?.setResultCallback { state ->
+                        if (state != null) {
+                            _playerState.value = state
+                        }
+                    }
+                }
             }
         } else {
             if (!prevTrackUri.isNullOrBlank()) {

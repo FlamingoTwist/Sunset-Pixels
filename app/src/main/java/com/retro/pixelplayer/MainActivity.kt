@@ -389,7 +389,7 @@ fun RetroAppRoot(
     // Cueing spinner timeout safeguard
     LaunchedEffect(isCueingTrack, activeTrackIndex) {
         if (isCueingTrack) {
-            delay(1200L)
+            delay(400L)
             isCueingTrack = false
         }
     }
@@ -696,27 +696,23 @@ fun RetroAppRoot(
                     onSkipPrev = {
                         feedback?.onTick()
                         isCueingTrack = true
-                        if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
-                            SpotifyRemoteManager.skipPrevious(context)
-                        } else if (activeTracks.isNotEmpty()) {
+                        if (activeTracks.size > 1) {
                             activeTrackIndex = if (activeTrackIndex - 1 < 0) activeTracks.size - 1 else activeTrackIndex - 1
                             val prevTrack = activeTracks[activeTrackIndex]
-                            if (isPlaying) {
-                                playTrack(prevTrack)
-                            }
+                            playTrack(prevTrack)
+                        } else if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
+                            SpotifyRemoteManager.skipPrevious(context)
                         }
                     },
                     onSkip = {
                         feedback?.onTick()
                         isCueingTrack = true
-                        if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
-                            SpotifyRemoteManager.skipNext(context)
-                        } else if (activeTracks.isNotEmpty()) {
+                        if (activeTracks.size > 1) {
                             activeTrackIndex = (activeTrackIndex + 1) % activeTracks.size
                             val nextTrack = activeTracks[activeTrackIndex]
-                            if (isPlaying) {
-                                playTrack(nextTrack)
-                            }
+                            playTrack(nextTrack)
+                        } else if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
+                            SpotifyRemoteManager.skipNext(context)
                         }
                     },
                     onEject = {
@@ -838,9 +834,11 @@ fun DeckScreen(
 
     val currentSpotifyTrack = spotifyPlayerState?.track
     val isSpotifyTape = currentTape?.isSpotify == true
+    val hasAuthenticActiveTrack = activeTrack != null && activeTrack.artist != "Spotify Playlist" && activeTrack.title.isNotBlank()
 
     val trackTitle = when {
         !isTapeInserted -> "PLEASE INSERT TAPE"
+        hasAuthenticActiveTrack -> activeTrack!!.title
         isSpotifyTape && currentSpotifyTrack != null && currentSpotifyTrack.name.isNotBlank() ->
             currentSpotifyTrack.name
         activeTrack != null -> activeTrack.title
@@ -849,9 +847,9 @@ fun DeckScreen(
 
     val artistText = when {
         !isTapeInserted -> "----"
+        hasAuthenticActiveTrack -> activeTrack!!.artist
         isSpotifyTape && currentSpotifyTrack != null && currentSpotifyTrack.artist.name.isNotBlank() ->
             currentSpotifyTrack.artist.name
-        activeTrack != null && activeTrack.artist != "Spotify Playlist" -> activeTrack.artist
         isSpotifyTape && currentTape != null -> currentTape.title
         else -> "UNKNOWN"
     }
