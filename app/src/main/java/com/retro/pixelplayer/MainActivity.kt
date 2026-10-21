@@ -360,18 +360,20 @@ fun RetroAppRoot(
             currentPositionMs = 0L
             totalDurationMs = track.durationMs.coerceAtLeast(30_000L)
 
+            val trackUri = track.spotifyUri ?: if (scheme == "spotify") track.contentUri.toString() else null
             val playlistUri = effectiveTape?.spotifyContextUri
-                ?: if (scheme == "spotify") track.contentUri.toString()
-                else track.spotifyUri ?: ""
 
             if (!isSpotifyRemoteConnected && SpotifyRemoteManager.isInstalled(context)) {
                 SpotifyRemoteManager.connect(context, showAuthView = false)
             }
 
-            SpotifyRemoteManager.play(
-                context = context,
-                uri = playlistUri
-            )
+            val uriToPlay = trackUri ?: playlistUri ?: ""
+            if (uriToPlay.isNotBlank()) {
+                SpotifyRemoteManager.play(
+                    context = context,
+                    uri = uriToPlay
+                )
+            }
         } else {
             // Local device audio track
             if (isSpotifyRemotePlaying) {
@@ -394,6 +396,10 @@ fun RetroAppRoot(
         val now = System.currentTimeMillis()
         if (now - lastAutoAdvanceTime < 1500L) return
         lastAutoAdvanceTime = now
+        if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
+            SpotifyRemoteManager.skipNext(context)
+            return
+        }
         val tracks = currentTape?.tracks ?: emptyList()
         if (tracks.isNotEmpty()) {
             val nextIndex = if (exoPlayer.repeatMode == Player.REPEAT_MODE_ONE) {
@@ -525,12 +531,7 @@ fun RetroAppRoot(
                 delay(250)
                 if (isPlaying && !isPaused) {
                     val nextPos = currentPositionMs + 250L
-                    if (totalDurationMs > 5_000L && nextPos >= totalDurationMs) {
-                        currentPositionMs = totalDurationMs
-                        advanceToNextTrack()
-                    } else {
-                        currentPositionMs = nextPos.coerceAtMost(totalDurationMs)
-                    }
+                    currentPositionMs = nextPos.coerceAtMost(totalDurationMs)
                 }
             } else {
                 currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -759,23 +760,27 @@ fun RetroAppRoot(
                     onSkipPrev = {
                         feedback?.onTick()
                         isCueingTrack = true
-                        if (activeTracks.size > 1) {
+                        if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
+                            SpotifyRemoteManager.skipPrevious(context)
+                        } else if (activeTracks.size > 1) {
                             activeTrackIndex = if (activeTrackIndex - 1 < 0) activeTracks.size - 1 else activeTrackIndex - 1
                             val prevTrack = activeTracks[activeTrackIndex]
                             playTrack(prevTrack)
-                        } else if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
-                            SpotifyRemoteManager.skipPrevious(context)
+                        } else {
+                            exoPlayer.seekTo(0L)
                         }
                     },
                     onSkip = {
                         feedback?.onTick()
                         isCueingTrack = true
-                        if (activeTracks.size > 1) {
+                        if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
+                            SpotifyRemoteManager.skipNext(context)
+                        } else if (activeTracks.size > 1) {
                             activeTrackIndex = (activeTrackIndex + 1) % activeTracks.size
                             val nextTrack = activeTracks[activeTrackIndex]
                             playTrack(nextTrack)
-                        } else if (isSpotifyRemotePlaying || currentTape?.isSpotify == true) {
-                            SpotifyRemoteManager.skipNext(context)
+                        } else {
+                            exoPlayer.seekTo(0L)
                         }
                     },
                     onEject = {
@@ -1217,11 +1222,13 @@ fun DeckScreen(
             if (isLandscape) {
                 // HORIZONTAL (Landscape) Layout - Matches Skin Designer 1:1
                 // 1. Cassette Door
-                val doorEl = vp.getElement("cassette_bay") ?: vp.getElement("cassette_door")
+                val isOpenDeckLand = !isTapeInserted || isInserting || isEjecting
+                val baseDoorEl = vp.getElement("cassette_bay") ?: vp.getElement("cassette_door")
+                val activeDoorEl = if (isOpenDeckLand) (vp.getElement("cassette_bay_open") ?: baseDoorEl) else baseDoorEl
                 val openDoorEl = vp.getElement("deck_door_open")
-                val deckW = cw * (doorEl?.relWidth ?: 0.4918f)
-                val deckX = cw * (doorEl?.relX ?: 0.0317f)
-                val deckY = ch * (doorEl?.relY ?: 0.1505f)
+                val deckW = cw * (activeDoorEl?.relWidth ?: 0.4918f)
+                val deckX = cw * (activeDoorEl?.relX ?: 0.0317f)
+                val deckY = ch * (activeDoorEl?.relY ?: 0.1505f)
 
                 CassetteDeck(
                     modifier = Modifier
@@ -1244,21 +1251,30 @@ fun DeckScreen(
                     onEjectOrInsert = { onTapeDeckTapped() }
                 )
 
-                // Open Cassette Door (visible only when deck is open, at exact XML designer coordinates)
-                val isOpenDeckLand = !isTapeInserted || isInserting || isEjecting
-                if (isOpenDeckLand) {
-                    openDoorEl?.let { el ->
-                        Image(
-                            painter = pixelPainterResource(id = R.drawable.deck_door_open_front),
-                            contentDescription = "Open Cassette Door",
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .offset(x = cw * el.relX, y = ch * el.relY)
-                                .size(width = cw * el.relWidth, height = ch * el.relHeight)
-                                .clickable { onTapeDeckTapped() },
-                            contentScale = ContentScale.FillBounds
-                        )
+                // Open Cassette Door (visible only when deck is open, locks 1:1 with cassette bay coordinates)
+                if (isOpenDeckLand && openDoorEl != null) {
+                    val bayRef = activeDoorEl ?: baseDoorEl
+                    val bayH = deckW * (144f / 250f)
+                    val (doorX, doorY, doorW, doorH) = if (bayRef != null && bayRef.width > 0f && bayRef.height > 0f) {
+                        val dX = deckX + deckW * ((openDoorEl.x - bayRef.x) / bayRef.width)
+                        val dY = deckY + bayH * ((openDoorEl.y - bayRef.y) / bayRef.height)
+                        val dW = deckW * (openDoorEl.width / bayRef.width)
+                        val dH = bayH * (openDoorEl.height / bayRef.height)
+                        listOf(dX, dY, dW, dH)
+                    } else {
+                        listOf(cw * openDoorEl.relX, ch * openDoorEl.relY, cw * openDoorEl.relWidth, ch * openDoorEl.relHeight)
                     }
+
+                    Image(
+                        painter = pixelPainterResource(id = R.drawable.deck_door_open_front),
+                        contentDescription = "Open Cassette Door",
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = doorX, y = doorY)
+                            .size(width = doorW, height = doorH)
+                            .clickable { onTapeDeckTapped() },
+                        contentScale = ContentScale.FillBounds
+                    )
                 }
 
                 // 2. Speaker Vents (Two grilles under cassette door)
@@ -1367,11 +1383,13 @@ fun DeckScreen(
             } else {
                 // VERTICAL (Portrait) Layout - Matches Skin Designer 1:1
                 // 1. Cassette Door
-                val doorEl = vp.getElement("cassette_bay") ?: vp.getElement("cassette_door")
+                val isOpenDeckPort = !isTapeInserted || isInserting || isEjecting
+                val baseDoorEl = vp.getElement("cassette_bay") ?: vp.getElement("cassette_door")
+                val activeDoorEl = if (isOpenDeckPort) (vp.getElement("cassette_bay_open") ?: baseDoorEl) else baseDoorEl
                 val openDoorEl = vp.getElement("deck_door_open")
-                val deckX = cw * (doorEl?.relX ?: 0.0437f)
-                val deckY = ch * (doorEl?.relY ?: 0.0546f)
-                val deckW = cw * (doorEl?.relWidth ?: 0.9102f)
+                val deckX = cw * (activeDoorEl?.relX ?: 0.0437f)
+                val deckY = ch * (activeDoorEl?.relY ?: 0.0546f)
+                val deckW = cw * (activeDoorEl?.relWidth ?: 0.9102f)
 
                 CassetteDeck(
                     modifier = Modifier
@@ -1394,21 +1412,30 @@ fun DeckScreen(
                     onEjectOrInsert = { onTapeDeckTapped() }
                 )
 
-                // Open Cassette Door (visible only when deck is open, at exact XML designer coordinates)
-                val isOpenDeckLand = !isTapeInserted || isInserting || isEjecting
-                if (isOpenDeckLand) {
-                    openDoorEl?.let { el ->
-                        Image(
-                            painter = pixelPainterResource(id = R.drawable.deck_door_open_front),
-                            contentDescription = "Open Cassette Door",
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .offset(x = cw * el.relX, y = ch * el.relY)
-                                .size(width = cw * el.relWidth, height = ch * el.relHeight)
-                                .clickable { onTapeDeckTapped() },
-                            contentScale = ContentScale.FillBounds
-                        )
+                // Open Cassette Door (visible only when deck is open, locks 1:1 with cassette bay coordinates)
+                if (isOpenDeckPort && openDoorEl != null) {
+                    val bayRef = activeDoorEl ?: baseDoorEl
+                    val bayH = deckW * (144f / 250f)
+                    val (doorX, doorY, doorW, doorH) = if (bayRef != null && bayRef.width > 0f && bayRef.height > 0f) {
+                        val dX = deckX + deckW * ((openDoorEl.x - bayRef.x) / bayRef.width)
+                        val dY = deckY + bayH * ((openDoorEl.y - bayRef.y) / bayRef.height)
+                        val dW = deckW * (openDoorEl.width / bayRef.width)
+                        val dH = bayH * (openDoorEl.height / bayRef.height)
+                        listOf(dX, dY, dW, dH)
+                    } else {
+                        listOf(cw * openDoorEl.relX, ch * openDoorEl.relY, cw * openDoorEl.relWidth, ch * openDoorEl.relHeight)
                     }
+
+                    Image(
+                        painter = pixelPainterResource(id = R.drawable.deck_door_open_front),
+                        contentDescription = "Open Cassette Door",
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = doorX, y = doorY)
+                            .size(width = doorW, height = doorH)
+                            .clickable { onTapeDeckTapped() },
+                        contentScale = ContentScale.FillBounds
+                    )
                 }
 
                 // 2. Speaker Vents (Directly below cassette door in portrait)

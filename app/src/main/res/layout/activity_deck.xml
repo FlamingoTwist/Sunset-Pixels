@@ -26,6 +26,21 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <!-- Layer 0b: Open Bay Cavity (Deep Cavity / Open base Back) -->
+    <ImageView
+        android:id="@+id/cassette_bay_open"
+        android:layout_width="375dp"
+        android:layout_height="216dp"
+        android:layout_marginStart="18dp"
+        android:layout_marginTop="50dp"
+        android:contentDescription="Open Cassette Deck Bay"
+        android:scaleType="fitXY"
+        android:src="@drawable/deck_open_base_back"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:visibility="visible" />
+
     <!-- Layer 1: Cassette Tape Body (when a tape is inserted) -->
     <ImageView
         android:id="@+id/cassette_tape"
@@ -57,7 +72,7 @@
         android:id="@+id/deck_door_open"
         android:layout_width="423dp"
         android:layout_height="117dp"
-        android:layout_marginStart="1dp"
+        android:layout_marginStart="-8dp"
         android:layout_marginTop="149dp"
         android:contentDescription="Open Cassette Door"
         android:scaleType="fitXY"
