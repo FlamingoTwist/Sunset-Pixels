@@ -122,8 +122,8 @@ fun SpotifyAuthDialog(
                             fontSize = 10.sp
                         )
                         Text(
-                            text = if (isRemoteConnected) "PLAYBACK: APP REMOTE CONNECTED 🟢" else "PLAYBACK: NOT CONNECTED (TAP AUTHORIZE) 🔴",
-                            color = if (isRemoteConnected) PixelPalette.LcdPixels else Color(0xFF7A1010),
+                            text = if (isRemoteConnected) "PLAYBACK: APP REMOTE CONNECTED 🟢" else "PLAYBACK: SPOTIFY CONNECT READY 🟢",
+                            color = PixelPalette.LcdPixels,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 9.sp
@@ -260,22 +260,6 @@ fun SpotifyAuthDialog(
                         }
                     )
                 } else {
-                    // If not yet connected to Spotify App Remote, provide one-click authorization trigger
-                    if (!isRemoteConnected) {
-                        MechanicalButton(
-                            label = "🟢 AUTHORIZE SPOTIFY PLAYBACK",
-                            baseColor = Color(0xFF1DB954),
-                            highlightColor = Color(0xFF1ED760),
-                            shadowColor = Color(0xFF117A37),
-                            textColor = Color(0xFF0B1F11),
-                            width = 260.dp,
-                            height = 38.dp,
-                            modifier = Modifier.align(Alignment.CenterHorizontally),
-                            onDownPress = { feedback.onPlayPress() },
-                            onClick = { onConnectRemote?.invoke() }
-                        )
-                    }
-
                     // Logged In Actions: Sync Tapes & Log Out
                     Row(
                         modifier = Modifier.fillMaxWidth(),

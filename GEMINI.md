@@ -21,7 +21,7 @@ This document captures the architectural nuances, non-obvious workarounds, and v
   2. Force-add both APKs (`git add -f Sunset-Pixels.apk Sunset-Soundwaves.apk` since `*.apk` is in `.gitignore`).
   3. Update the GitHub Release asset:
      ```powershell
-     gh release upload v0.2.0 "s:\AmosApps\Music Player\Sunset-Pixels.apk" "s:\AmosApps\Music Player\Sunset-Soundwaves.apk" --clobber
+     gh release upload v0.4.0 "s:\AmosApps\Music Player\Sunset-Pixels.apk" "s:\AmosApps\Music Player\Sunset-Soundwaves.apk" --clobber
      ```
   *Current Stable Release*: `v0.3.0` (all subsequent development targets `0.4`).
 
@@ -73,26 +73,23 @@ This document captures the architectural nuances, non-obvious workarounds, and v
 
 ## 3. Critical Nuances & Gotchas
 
-### A. Spotify Playback: Official High-Quality Streams via Spotify Android App Remote SDK
-1. **Authentic Songs vs Fuzzy Search Covers**:
-   - Earlier revisions attempted fuzzy text lookups across third-party engines (SoundCloud, JioSaavn), which frequently resolved to amateur bedroom covers, karaoke, or nightcore.
-   - Every Spotify track in Sunset Pixels retains its authentic Spotify URI (`track.spotifyUri`, e.g. `spotify:track:6rqhFgbbKwnb9MLmUQDhG6`).
-   - The app integrates the official **Spotify Android App Remote SDK** (`app/libs/spotify-app-remote-release-0.8.0.aar` + `com.google.code.gson:gson:2.10.1`), managed via `SpotifyRemoteManager.kt`.
-2. **How Spotify Remote Playback Operates**:
-   - `SpotifyRemoteManager.connect(context)` binds via IPC to the installed Spotify app (`com.spotify.music`).
-   - Android 11+ Package Visibility: `<queries><package android:name="com.spotify.music" /></queries>` in `AndroidManifest.xml` is mandatory for the app to detect and bind to Spotify.
-   - Playing a Spotify track invokes `SpotifyRemoteManager.play(context, track.spotifyUri)`.
+### A. Spotify Integration Scope & Playback via Spotify Android App Remote SDK
+1. **Scope: Local First & Spotify Playlists**:
+   - The **Artist Shelf**, **Album Views**, **Song Lists**, and **Mixtape Recording** are strictly for **local audio files** (`MediaStore` / device files).
+   - Spotify integration is restricted to importing user playlists into the cardboard **Playlist Shoe Box** (`spotifyPlaylistTapes`).
+   - Spotify Web API player endpoints, fuzzy searches, artist lookups, and third-party scrapers/proxies are completely abandoned and removed.
+   - Users create/edit Spotify playlists inside the official Spotify app.
+2. **Authentic Spotify App Remote Playback**:
+   - When a Spotify playlist tape is inserted and played, `SpotifyRemoteManager.play(context, playlistUri)` sends the authentic playlist URI to the Spotify App Remote SDK.
    - `PlayerApi.subscribeToPlayerState()` streams real-time authoritative player position, duration, `isPaused`, and track transitions.
-   - Local tracks (`content://` or `file://`) continue playing natively through `ExoPlayer`, while Spotify tracks stream through the Spotify app.
-   - Transport controls (Play, Pause, Stop, Seek, Skip, Shuffle, Repeat) seamlessly route to `SpotifyRemoteManager` when a Spotify track is active.
+   - Local tracks continue playing natively through `ExoPlayer`, while Spotify playlist tapes stream through the Spotify app.
+   - Transport controls (Play, Pause, Stop, Seek, Skip, Shuffle, Repeat) seamlessly route to `SpotifyRemoteManager` when a Spotify tape is active.
 
-### B. Spotify Feb 2026 Web API Restrictions & Embed Scraper Fallback
-- Spotify's Feb 2026 Development Mode changes restricted several endpoints (`/v1/playlists/{id}/tracks` can return `403 Forbidden` or redact track payloads for non-owned/algorithmic playlists, and `/items` replaces `/tracks` in newer endpoints).
-- `SpotifyManager.fetchPlaylistTracksWithFallback()` handles this automatically with a 3-tier strategy:
-  1. `/v1/playlists/{id}/items`
-  2. `/v1/playlists/{id}/tracks`
-  3. **Public Embed HTML Scraper** (`https://open.spotify.com/embed/playlist/{id}` -> parses `<script id="__NEXT_DATA__">` JSON ` state.data.entity.trackList`).
-- Do not remove the embed scraper fallback—it is the only way algorithmic/editorial Spotify playlists populate tracks reliably in Dev Mode.
+### B. Sunset Record Shop ("The Shop")
+- Dig through crates of your own local music collection: **ARTISTS**, **ALBUMS**, and **SONGS**.
+- Instant real-time CRT search across title, artist, and album.
+- Every song has `▶ PLAY` to instantly cue/play and `🔴 REC` to record onto a handmade mixtape.
+- Zero network dependencies: 100% offline, snappy, and authentic.
 
 ### C. Instant Startup Cassette Shelf (`spotify_library_cache_v2.json`)
 - Users expect their Spotify cassettes and last inserted tape to be present **immediately on frame 1** when reopening the app after force-closing.
@@ -151,3 +148,30 @@ This document captures the architectural nuances, non-obvious workarounds, and v
 - **Strict Read-Only Connection Rule**:
   - `SpotifyRemoteManager.connect()` and `refreshState()` must remain 100% read-only IPC queries via `SpotifyAppRemote.connect()`.
   - Playback commands must **only** be issued in response to direct, explicit user actions (pressing the physical Walkman **PLAY** button or tapping a specific track in the cassette tracklist).
+
+
+### I. Android Studio Visual XML Layout Pipeline (`res/layout/activity_deck.xml` & `res/layout-land/activity_deck.xml`)
+> [!CAUTION]
+> **XML LAYOUT FILES ARE COMPLETELY UNTOUCHABLE**: Never, under any circumstances, edit, format, modify, or rewrite `res/layout/activity_deck.xml`, `res/layout-land/activity_deck.xml`, or any XML layout file unless the user explicitly and specifically instructs you to edit an XML file. All positioning, sizing, and styling in XML belongs 100% to the user in Android Studio.
+
+1. **The Native Layout Editor is the Source of Truth**:
+   - UI layout and visual placement are designed natively in Android Studio's built-in Visual Layout Editor (`Design` / `Split` view).
+   - Layout files:
+     - Portrait: `app/src/main/res/layout/activity_deck.xml`
+     - Landscape: `app/src/main/res/layout-land/activity_deck.xml`
+   - Both layouts use `RelativeLayout` configured with `tools:device="id:pixel_8"` for 1:1 match with real device dimensions (412×915 dp).
+   - The former custom browser tool (`tools/skin_editor/index.html`) and `default_skin.json` are superseded by this native Android Studio workflow. Never regenerate or rely on `default_skin.json`.
+2. **Runtime Coordinate Extraction (`SkinData.kt`)**:
+   - `SkinManager.loadSkin(context)` inflates `R.layout.activity_deck` dynamically under Portrait (`Configuration.ORIENTATION_PORTRAIT`) and Landscape (`Configuration.ORIENTATION_LANDSCAPE`) contexts.
+   - For every child view, `SkinData.kt` extracts:
+     - Exact DP dimensions: `width` and `height` (from `lp.width / density` and `lp.height / density`).
+     - Positioning: `x` and `y` DP coordinates, respecting `layout_marginStart`, `layout_marginTop`, and `layout_alignParentEnd` (`canvasW - marginEnd - width`).
+     - Fractional viewport coordinates (`relX, relY, relWidth, relHeight`) for proportional scaling across diverse screen resolutions.
+   - Dual-alias support: `@+id/cassette_bay` and `@+id/cassette_door` map to the same element for backwards compatibility.
+3. **Transport Button Handling & Dual-Purpose Stop/Eject**:
+   - Each transport button (`btn_skip_prev`, `btn_rewind`, `btn_play`, `btn_fast_fwd`, `btn_skip_next`, `btn_stop`, `btn_eject`) is positioned strictly by its individual XML coordinates.
+   - **Colocated Stop/Eject**: If `btn_stop` and `btn_eject` are placed at the same coordinates in the XML layout, the player treats them as the authentic Walkman dual-purpose mechanical button: displaying `STOP` during playback (`onStop`), and swapping to `EJECT` when stopped (`onEject`), preventing duplicate or overlapping buttons. If positioned distinctly (> 20dp apart), both render independently.
+4. **Strict Visibility-Only Toggling (Zero Code-Based Positioning or Rescaling)**:
+   - **Never touch or edit the user's XML layout files** (`activity_deck.xml`). All visual placement, margins, widths, and heights belong solely to the designer in Android Studio's Visual Editor.
+   - **Zero Code-Based Offsetting**: Never hardcode offsets, translations, or scale factors in Kotlin. Every element (`deck_door_open`, `deck_door_closed`, `cassette_bay`, buttons) is placed strictly at its exact XML coordinates.
+   - **Pure Visibility Switching**: State changes (playing, paused, stopped, ejected) are handled purely by toggling the visibility of the corresponding XML elements (`deck_door_closed` visible when playing/inserted; `deck_door_open` visible when open/ejected). The open door appears exactly where and how it was sized in the editor without any movement or resizing.

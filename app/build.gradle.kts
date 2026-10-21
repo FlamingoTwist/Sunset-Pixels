@@ -12,8 +12,8 @@ android {
         applicationId = "com.retro.pixelplayer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.0"
+        versionCode = 5
+        versionName = "0.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -36,10 +36,12 @@ android {
     }
     buildFeatures {
         compose = true
+        viewBinding = true
     }
 }
 
 dependencies {
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -60,6 +62,7 @@ dependencies {
     // Spotify App Remote SDK & JSON parser
     implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
     debugImplementation(libs.androidx.ui.tooling)
 }

@@ -16,8 +16,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -65,13 +67,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.times
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.retro.pixelplayer.R
 import com.retro.pixelplayer.audio.LocalMusicScanner
+import com.retro.pixelplayer.audio.MixtapeManager
 import com.retro.pixelplayer.audio.TapeItem
 import com.retro.pixelplayer.audio.TapeType
 import com.retro.pixelplayer.audio.Track
@@ -83,15 +88,23 @@ import com.retro.pixelplayer.ui.components.LcdDisplay
 import com.retro.pixelplayer.ui.components.MechanicalButton
 import com.retro.pixelplayer.ui.components.PixelArtButton
 import com.retro.pixelplayer.ui.components.PixelArtSwitch
+import com.retro.pixelplayer.ui.components.RecordStoreScreen
+import com.retro.pixelplayer.ui.components.RecordToMixtapeDialog
+import com.retro.pixelplayer.ui.components.ShelfMode
 import com.retro.pixelplayer.ui.components.SpotifyAuthDialog
+import com.retro.pixelplayer.ui.components.TapeInlayScreen
 import com.retro.pixelplayer.ui.components.TapeSelectionScreen
 import com.retro.pixelplayer.ui.theme.PixelPalette
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class CurrentAppView {
     DECK,           // The physical cassette tape player
-    TAPE_SELECTION  // The Wooden Shelf / Cardboard Shoe Box
+    TAPE_SELECTION, // The Wooden Shelf / Cardboard Shoe Box
+    TAPE_INLAY,     // The J-Card Inside Sleeve tracklist
+    RECORD_STORE    // Record Store cassette crate search
 }
 
 class MainActivity : ComponentActivity() {
@@ -154,26 +167,20 @@ fun RetroAppRoot(
     var isSpotifySyncing by remember { mutableStateOf(false) }
     var showSpotifyDialog by remember { mutableStateOf(false) }
 
-    var spotifyArtistTapes by remember {
-        mutableStateOf<Map<String, List<TapeItem>>>(initialSpotifyCache?.artistTapes ?: emptyMap())
-    }
     var spotifyPlaylistTapes by remember {
         mutableStateOf<List<TapeItem>>(initialSpotifyCache?.playlistTapes ?: emptyList())
     }
 
-    // Combined Local + Spotify Tapes for the Shelf & Shoe Box
-    val artistTapes = remember(localArtistTapes, spotifyArtistTapes) {
-        val merged = mutableMapOf<String, List<TapeItem>>()
-        merged.putAll(localArtistTapes)
-        spotifyArtistTapes.forEach { (artist, tapes) ->
-            val existing = merged[artist] ?: emptyList()
-            merged[artist] = existing + tapes
-        }
-        merged
+    // User-created handmade mixtapes
+    var userMixtapes by remember { mutableStateOf(MixtapeManager.loadMixtapes(context)) }
+
+    // Artist Shelf is exclusively for Local Files!
+    val artistTapes = remember(localArtistTapes) {
+        localArtistTapes
     }
 
-    val playlistTapes = remember(localPlaylistTapes, spotifyPlaylistTapes) {
-        spotifyPlaylistTapes + localPlaylistTapes
+    val playlistTapes = remember(localPlaylistTapes, spotifyPlaylistTapes, userMixtapes) {
+        userMixtapes + spotifyPlaylistTapes + localPlaylistTapes
     }
 
     // Active loaded Tape (restores last selected tape from SharedPreferences if available)
@@ -185,6 +192,15 @@ fun RetroAppRoot(
             matched ?: playlistTapes.firstOrNull() ?: artistTapes.values.firstOrNull()?.firstOrNull()
         )
     }
+
+    // State for Recording to Mixtape & J-Card Inlay
+    var trackToRecord by remember { mutableStateOf<Track?>(null) }
+    var showRecordDialog by remember { mutableStateOf(false) }
+    var selectedInlayTape by remember { mutableStateOf<TapeItem?>(null) }
+    var shelfTargetMode by remember { mutableStateOf(ShelfMode.SHOEBOX_TAPES) }
+    var shelfTargetArtist by remember { mutableStateOf<String?>(null) }
+    var tapeSelectionResetKey by remember { mutableIntStateOf(0) }
+    var lastPlayCommandTime by remember { mutableLongStateOf(0L) }
 
     fun triggerSpotifySync() {
         if (isSpotifySyncing) return
@@ -200,20 +216,25 @@ fun RetroAppRoot(
             isSpotifySyncing = false
             res.onSuccess { syncData ->
                 spotifyUserName = syncData.userName
-                spotifyArtistTapes = syncData.artistTapes
                 spotifyPlaylistTapes = syncData.playlistTapes
                 spotifySyncStatus = syncData.statusMessage
 
                 // If the user had a Spotify tape selected before closing the app (or no tape yet), restore/update it
                 val savedId = SpotifyManager.getLastTapeId(context)
-                val allSynced = syncData.playlistTapes + syncData.artistTapes.values.flatten()
+                val allSynced = syncData.playlistTapes
                 if (savedId != null) {
                     allSynced.firstOrNull { it.id == savedId }?.let { currentTape = it }
                 } else if (currentTape == null) {
                     currentTape = syncData.playlistTapes.firstOrNull()
                 }
             }.onFailure { err ->
-                spotifySyncStatus = "SYNC ERROR: ${err.message?.take(36)}"
+                android.util.Log.w("SpotifySync", "Background sync notice: ${err.message}")
+                val hasCached = spotifyPlaylistTapes.isNotEmpty()
+                spotifySyncStatus = if (hasCached) {
+                    "SPOTIFY READY • ${spotifyPlaylistTapes.size} MIXTAPES"
+                } else {
+                    "SYNC PENDING • TAP SYNC WHEN CONNECTED"
+                }
             }
         }
     }
@@ -285,6 +306,7 @@ fun RetroAppRoot(
     var isPlaying by remember { mutableStateOf(false) }
     var isPaused by remember { mutableStateOf(false) }
     var isSpotifyRemotePlaying by remember { mutableStateOf(false) }
+    var isExplicitlyStopped by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var isCueingTrack by remember { mutableStateOf(false) }
@@ -318,14 +340,19 @@ fun RetroAppRoot(
         null
     }
 
-    fun playTrack(track: Track?) {
-        if (track == null || !isTapeInserted) return
+    fun playTrack(track: Track?, tape: TapeItem? = null, trackIndex: Int? = null) {
+        if (track == null) return
+        isExplicitlyStopped = false
+        isTapeInserted = true
         isCueingTrack = true
+        lastPlayCommandTime = System.currentTimeMillis()
+        val effectiveTape = tape ?: currentTape
         val scheme = track.contentUri.scheme ?: ""
-        val isSpotifyTrack = (scheme == "spotify") || (track.spotifyUri != null) || (currentTape?.isSpotify == true)
+        val isLocalFile = scheme == "content" || scheme == "file"
+        val isSpotifyTrack = !isLocalFile && ((scheme == "spotify") || (track.spotifyUri != null) || (effectiveTape?.isSpotify == true))
 
         if (isSpotifyTrack) {
-            // Play official authentic track directly through Spotify App Remote with full playlist context!
+            // Play authentic Spotify playlist tape directly through Spotify App Remote!
             exoPlayer.stop()
             isSpotifyRemotePlaying = true
             isPlaying = true
@@ -333,22 +360,17 @@ fun RetroAppRoot(
             currentPositionMs = 0L
             totalDurationMs = track.durationMs.coerceAtLeast(30_000L)
 
-            val uriToPlay = track.spotifyUri
+            val playlistUri = effectiveTape?.spotifyContextUri
                 ?: if (scheme == "spotify") track.contentUri.toString()
-                else "spotify:track:${track.id}"
+                else track.spotifyUri ?: ""
 
-            val tape = currentTape
-            val trackIdx = activeTracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: activeTrackIndex
-            val allUris = activeTracks.mapNotNull {
-                it.spotifyUri ?: if (it.contentUri.scheme == "spotify") it.contentUri.toString() else null
+            if (!isSpotifyRemoteConnected && SpotifyRemoteManager.isInstalled(context)) {
+                SpotifyRemoteManager.connect(context, showAuthView = false)
             }
 
             SpotifyRemoteManager.play(
                 context = context,
-                spotifyUri = uriToPlay,
-                contextUri = tape?.spotifyContextUri,
-                trackIndex = trackIdx,
-                allTrackUris = allUris
+                uri = playlistUri
             )
         } else {
             // Local device audio track
@@ -356,11 +378,13 @@ fun RetroAppRoot(
                 SpotifyRemoteManager.pause(context)
             }
             isSpotifyRemotePlaying = false
+            isPlaying = true
+            isPaused = false
+            exoPlayer.stop()
             val mediaItem = MediaItem.fromUri(track.contentUri)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
             exoPlayer.play()
-            isPaused = false
         }
     }
 
@@ -404,12 +428,22 @@ fun RetroAppRoot(
                 totalDurationMs = dur
             }
 
-            isPlaying = !state.isPaused
-            isPaused = state.isPaused
-            currentPositionMs = state.playbackPosition
-            if (!state.isPaused) {
-                isSpotifyRemotePlaying = true
+            if (isExplicitlyStopped) {
+                isPlaying = false
+                isPaused = false
+                if (!state.isPaused) {
+                    isExplicitlyStopped = false
+                    isPlaying = true
+                    isSpotifyRemotePlaying = true
+                }
+            } else {
+                isPlaying = !state.isPaused
+                isPaused = state.isPaused
+                if (!state.isPaused) {
+                    isSpotifyRemotePlaying = true
+                }
             }
+            currentPositionMs = state.playbackPosition
 
             val stateUri = state.track?.uri
             if (!stateUri.isNullOrBlank() && activeTracks.isNotEmpty()) {
@@ -423,16 +457,20 @@ fun RetroAppRoot(
     }
 
     // Handle Android system back button
-    BackHandler(enabled = currentScreen == CurrentAppView.TAPE_SELECTION) {
-        currentScreen = CurrentAppView.DECK
+    BackHandler(enabled = currentScreen != CurrentAppView.DECK) {
+        currentScreen = when (currentScreen) {
+            CurrentAppView.TAPE_INLAY -> CurrentAppView.TAPE_SELECTION
+            CurrentAppView.RECORD_STORE -> CurrentAppView.DECK
+            else -> CurrentAppView.DECK
+        }
     }
 
     // Listen to ExoPlayer playback events (including auto-advancing to next track on cassette)
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
-                if (playing) {
-                    isPlaying = true
+                if (!isSpotifyRemotePlaying) {
+                    isPlaying = playing
                 }
             }
 
@@ -505,47 +543,6 @@ fun RetroAppRoot(
         }
     }
 
-    // Authoritative playback sync loop for Spotify tracks via Web API (when App Remote IPC is unlinked)
-    LaunchedEffect(isSpotifyRemotePlaying, isPlaying, isPaused) {
-        while (isSpotifyRemotePlaying && isPlaying && !isPaused) {
-            delay(1500)
-            if (isSpotifyRemotePlaying && isPlaying && !isPaused && !isSpotifyRemoteConnected) {
-                val webState = SpotifyManager.getPlaybackState(context)
-                if (webState != null) {
-                    if (webState.durationMs > 0) {
-                        totalDurationMs = webState.durationMs
-                    }
-                    val webUri = webState.trackUri
-                    if (!webUri.isNullOrBlank() && activeTracks.isNotEmpty()) {
-                        val targetUri = activeTracks.getOrNull(activeTrackIndex)?.spotifyUri
-                        if (isCueingTrack && !targetUri.isNullOrBlank() && webUri != targetUri) {
-                            continue
-                        }
-                        val matchIdx = activeTracks.indexOfFirst { it.spotifyUri == webUri }
-                        if (matchIdx >= 0 && matchIdx != activeTrackIndex) {
-                            activeTrackIndex = matchIdx
-                            currentPositionMs = webState.progressMs
-                            isPlaying = webState.isPlaying
-                            isPaused = !webState.isPlaying
-                            continue
-                        }
-                    }
-
-                    if (webState.isPlaying) {
-                        isPlaying = true
-                        isPaused = false
-                        currentPositionMs = webState.progressMs
-                    } else if (totalDurationMs > 10_000L && webState.progressMs >= totalDurationMs - 2500L) {
-                        advanceToNextTrack()
-                    } else {
-                        isPlaying = false
-                        isPaused = true
-                    }
-                }
-            }
-        }
-    }
-
     if (showSpotifyDialog) {
         SpotifyAuthDialog(
             isLoggedIn = isSpotifyLoggedIn,
@@ -561,13 +558,14 @@ fun RetroAppRoot(
                 triggerSpotifySync()
             },
             onConnectRemote = {
+                feedback.onTick()
+                android.widget.Toast.makeText(context, "Authorizing Spotify Playback...", android.widget.Toast.LENGTH_SHORT).show()
                 SpotifyRemoteManager.connect(context, showAuthView = true)
             },
             onLogoutClicked = {
                 SpotifyManager.logout(context)
                 SpotifyRemoteManager.disconnect()
                 isSpotifyLoggedIn = false
-                spotifyArtistTapes = emptyMap()
                 spotifyPlaylistTapes = emptyList()
                 spotifySyncStatus = "LOGGED OUT OF SPOTIFY"
             },
@@ -607,6 +605,22 @@ fun RetroAppRoot(
                     isSpotifyLoggedIn = isSpotifyLoggedIn,
 
                     onSpotifyClicked = { showSpotifyDialog = true },
+                    onViewTapeInlay = { tape ->
+                        selectedInlayTape = tape
+                        currentScreen = CurrentAppView.TAPE_INLAY
+                    },
+                    onCreateNewMixtape = {
+                        val newTape = MixtapeManager.createMixtape(context, "MIXTAPE VOL. ${userMixtapes.size + 1}")
+                        userMixtapes = MixtapeManager.loadMixtapes(context)
+                        selectedInlayTape = newTape
+                        currentScreen = CurrentAppView.TAPE_INLAY
+                    },
+                    onOpenRecordStore = {
+                        currentScreen = CurrentAppView.RECORD_STORE
+                    },
+                    initialMode = shelfTargetMode,
+                    initialArtist = shelfTargetArtist,
+                    resetKey = tapeSelectionResetKey,
                     onTapeSelected = { selectedTape ->
                         currentTape = selectedTape
                         currentTapeShellResId = cassetteVariants.random()
@@ -618,8 +632,41 @@ fun RetroAppRoot(
 
                         // Auto-cue first track
                         selectedTape.tracks.firstOrNull()?.let { firstTrack ->
-                            playTrack(firstTrack)
+                            playTrack(firstTrack, tape = selectedTape)
                         }
+                    },
+                    onPlayArtistRadio = { artistName, tapes ->
+                        val radioTape = tapes.firstOrNull { it.type == TapeType.ARTIST_ALL } ?: tapes.firstOrNull()
+                        if (radioTape != null) {
+                            currentTape = radioTape
+                            currentTapeShellResId = cassetteVariants.random()
+                            SpotifyManager.saveLastTapeId(context, radioTape.id)
+                            activeTrackIndex = 0
+                            isTapeInserted = true
+                            isTapeInserting = true
+                            currentScreen = CurrentAppView.DECK
+
+                            radioTape.tracks.firstOrNull()?.let { firstTrack ->
+                                playTrack(firstTrack, tape = radioTape)
+                            }
+                        }
+                    },
+                    onPlayTrackFromTape = { tapeToPlay, trackIndex ->
+                        currentTape = tapeToPlay
+                        currentTapeShellResId = cassetteVariants.random()
+                        SpotifyManager.saveLastTapeId(context, tapeToPlay.id)
+                        activeTrackIndex = trackIndex
+                        isTapeInserted = true
+                        isTapeInserting = true
+                        currentScreen = CurrentAppView.DECK
+
+                        tapeToPlay.tracks.getOrNull(trackIndex)?.let { track ->
+                            playTrack(track, tape = tapeToPlay, trackIndex = trackIndex)
+                        }
+                    },
+                    onAddToMixtape = { track ->
+                        trackToRecord = track
+                        showRecordDialog = true
                     },
                     onBackToPlayer = {
                         currentScreen = CurrentAppView.DECK
@@ -643,6 +690,9 @@ fun RetroAppRoot(
                     onEjectAnimationFinished = {
                         isTapeEjecting = false
                         isTapeInserted = false
+                        shelfTargetMode = ShelfMode.SHOEBOX_TAPES
+                        shelfTargetArtist = null
+                        tapeSelectionResetKey++
                         currentScreen = CurrentAppView.TAPE_SELECTION
                     },
                     isPlaying = isPlaying,
@@ -655,18 +705,30 @@ fun RetroAppRoot(
                     isCueing = isCueingTrack,
                     onSpotifyClicked = { showSpotifyDialog = true },
                     onPlay = {
+                        isExplicitlyStopped = false
                         if (isTapeInserted) {
+                            val isLocalFile = activeTrack?.contentUri?.scheme == "content" || activeTrack?.contentUri?.scheme == "file"
+                            val isSpotify = !isLocalFile && (activeTrack?.spotifyUri != null ||
+                                            activeTrack?.contentUri?.scheme == "spotify" ||
+                                            currentTape?.isSpotify == true)
                             if (isPaused) {
-                                if (isSpotifyRemotePlaying) {
+                                if (isSpotify) {
                                     isPlaying = true
                                     isPaused = false
-                                    SpotifyRemoteManager.resume(context)
+                                    isSpotifyRemotePlaying = true
+                                    if (isSpotifyRemoteConnected) {
+                                        SpotifyRemoteManager.resume(context)
+                                    } else {
+                                        playTrack(activeTrack, currentTape)
+                                    }
                                 } else {
-                                    exoPlayer.play()
+                                    isSpotifyRemotePlaying = false
+                                    isPlaying = true
                                     isPaused = false
+                                    exoPlayer.play()
                                 }
                             } else {
-                                playTrack(activeTrack)
+                                playTrack(activeTrack, currentTape)
                             }
                         }
                     },
@@ -683,6 +745,7 @@ fun RetroAppRoot(
                         }
                     },
                     onStop = {
+                        isExplicitlyStopped = true
                         if (isSpotifyRemotePlaying) {
                             SpotifyRemoteManager.pause(context)
                         }
@@ -739,12 +802,38 @@ fun RetroAppRoot(
                             isPaused = false
                             isTapeEjecting = true
                         } else {
+                            shelfTargetMode = ShelfMode.SHOEBOX_TAPES
+                            shelfTargetArtist = null
+                            tapeSelectionResetKey++
                             currentScreen = CurrentAppView.TAPE_SELECTION
                         }
                     },
                     onBrowseTapesClicked = {
                         feedback.onTick()
+                        shelfTargetMode = ShelfMode.SHOEBOX_TAPES
+                        shelfTargetArtist = null
+                        tapeSelectionResetKey++
                         currentScreen = CurrentAppView.TAPE_SELECTION
+                    },
+                    onRecordClicked = {
+                        feedback.onTapeLatch()
+                        if (activeTrack != null) {
+                            val isSpotify = activeTrack.spotifyUri != null || activeTrack.contentUri.scheme == "spotify" || currentTape?.isSpotify == true
+                            if (isSpotify) {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "MIXTAPES: LOCAL FILES ONLY",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                trackToRecord = activeTrack
+                                showRecordDialog = true
+                            }
+                        }
+                    },
+                    onRecordStoreClicked = {
+                        feedback.onTick()
+                        currentScreen = CurrentAppView.RECORD_STORE
                     },
                     onShuffleToggle = { enabled ->
                         exoPlayer.shuffleModeEnabled = enabled
@@ -773,7 +862,135 @@ fun RetroAppRoot(
                     }
                 )
             }
+
+            CurrentAppView.TAPE_INLAY -> {
+                val inlayTape = selectedInlayTape ?: currentTape
+                if (inlayTape != null) {
+                    TapeInlayScreen(
+                        tape = inlayTape,
+                        feedback = feedback,
+                        onPlayTape = { tapeToPlay, trackIndex ->
+                            currentTape = tapeToPlay
+                            currentTapeShellResId = cassetteVariants.random()
+                            SpotifyManager.saveLastTapeId(context, tapeToPlay.id)
+                            activeTrackIndex = trackIndex
+                            isTapeInserted = true
+                            isTapeInserting = true
+                            currentScreen = CurrentAppView.DECK
+                            playTrack(tapeToPlay.tracks.getOrNull(trackIndex), tape = tapeToPlay)
+                        },
+                        onAddToMixtape = { track ->
+                            trackToRecord = track
+                            showRecordDialog = true
+                        },
+                        onGoToArtist = { artistName ->
+                            shelfTargetArtist = artistName
+                            shelfTargetMode = ShelfMode.ARTIST_TAPES
+                            tapeSelectionResetKey++
+                            currentScreen = CurrentAppView.TAPE_SELECTION
+                        },
+                        onRemoveTrack = if (inlayTape.id.startsWith("mixtape_")) {
+                            { idx ->
+                                MixtapeManager.removeTrackAt(context, inlayTape.id, idx)
+                                userMixtapes = MixtapeManager.loadMixtapes(context)
+                                selectedInlayTape = userMixtapes.firstOrNull { it.id == inlayTape.id }
+                                if (currentTape?.id == inlayTape.id) {
+                                    currentTape = selectedInlayTape
+                                }
+                            }
+                        } else null,
+                        onDeleteMixtape = if (inlayTape.id.startsWith("mixtape_")) {
+                            {
+                                MixtapeManager.deleteMixtape(context, inlayTape.id)
+                                userMixtapes = MixtapeManager.loadMixtapes(context)
+                                if (currentTape?.id == inlayTape.id) {
+                                    currentTape = playlistTapes.firstOrNull()
+                                }
+                                currentScreen = CurrentAppView.TAPE_SELECTION
+                            }
+                        } else null,
+                        onBack = {
+                            currentScreen = CurrentAppView.TAPE_SELECTION
+                        }
+                    )
+                } else {
+                    currentScreen = CurrentAppView.TAPE_SELECTION
+                }
+            }
+
+            CurrentAppView.RECORD_STORE -> {
+                RecordStoreScreen(
+                    localTracks = allTracks,
+                    feedback = feedback,
+                    onPlayTrack = { track ->
+                        val singleTape = TapeItem(
+                            id = "single_${track.id}",
+                            title = track.title,
+                            subtitle = track.artist,
+                            type = TapeType.ALBUM,
+                            tracks = listOf(track),
+                            isSpotify = false,
+                            isHomeMade = false
+                        )
+                        currentTape = singleTape
+                        currentTapeShellResId = cassetteVariants.random()
+                        activeTrackIndex = 0
+                        isTapeInserted = true
+                        isTapeInserting = true
+                        currentScreen = CurrentAppView.DECK
+                        playTrack(track, tape = singleTape)
+                    },
+                    onPlayTape = { tape ->
+                        currentTape = tape
+                        currentTapeShellResId = cassetteVariants.random()
+                        activeTrackIndex = 0
+                        isTapeInserted = true
+                        isTapeInserting = true
+                        currentScreen = CurrentAppView.DECK
+                        tape.tracks.firstOrNull()?.let { firstTrack ->
+                            playTrack(firstTrack, tape = tape)
+                        }
+                    },
+                    onAddToMixtape = { track ->
+                        trackToRecord = track
+                        showRecordDialog = true
+                    },
+                    onBack = {
+                        currentScreen = CurrentAppView.DECK
+                    }
+                )
+            }
         }
+    }
+
+    if (showRecordDialog && trackToRecord != null) {
+        RecordToMixtapeDialog(
+            track = trackToRecord!!,
+            userMixtapes = userMixtapes,
+            feedback = feedback,
+            onAddToMixtape = { mixtapeId ->
+                MixtapeManager.addTrackToMixtape(context, mixtapeId, trackToRecord!!)
+                userMixtapes = MixtapeManager.loadMixtapes(context)
+                if (currentTape?.id == mixtapeId) {
+                    currentTape = userMixtapes.firstOrNull { it.id == mixtapeId }
+                }
+                if (selectedInlayTape?.id == mixtapeId) {
+                    selectedInlayTape = userMixtapes.firstOrNull { it.id == mixtapeId }
+                }
+                showRecordDialog = false
+            },
+            onCreateAndAdd = { title ->
+                val newTape = MixtapeManager.createMixtape(context, title, trackToRecord!!)
+                userMixtapes = MixtapeManager.loadMixtapes(context)
+                if (currentTape?.id == newTape.id) {
+                    currentTape = newTape
+                }
+                showRecordDialog = false
+            },
+            onDismiss = {
+                showRecordDialog = false
+            }
+        )
     }
 }
 
@@ -798,6 +1015,8 @@ fun DeckScreen(
     feedback: MechanicalFeedback? = null,
     isCueing: Boolean = false,
     onSpotifyClicked: () -> Unit = {},
+    onRecordClicked: () -> Unit = {},
+    onRecordStoreClicked: () -> Unit = {},
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onStop: () -> Unit,
@@ -937,25 +1156,47 @@ fun DeckScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "◆ SUNSET SOUNDWAVES ◆",
+                    text = if (isLandscape) "◆ SUNSET SOUNDWAVES ◆" else "◆ SUNSET ◆",
                     color = PixelPalette.ChassisHighlight,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Black,
-                    fontSize = if (isLandscape) 12.sp else 13.sp
+                    fontSize = if (isLandscape) 12.sp else 11.sp
                 )
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 8.dp else 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    MechanicalButton(
+                        label = "🔴 REC",
+                        baseColor = Color(0xFFB71C1C),
+                        highlightColor = Color(0xFFE53935),
+                        shadowColor = Color(0xFF7F0000),
+                        width = if (isLandscape) 64.dp else 56.dp,
+                        height = if (isLandscape) 25.dp else 28.dp,
+                        onDownPress = { feedback?.onTapeLatch() },
+                        onClick = { onRecordClicked() }
+                    )
+
+                    MechanicalButton(
+                        label = "📻 STORE",
+                        baseColor = Color(0xFFE65100),
+                        highlightColor = Color(0xFFFF9800),
+                        shadowColor = Color(0xFFBF360C),
+                        width = if (isLandscape) 68.dp else 58.dp,
+                        height = if (isLandscape) 25.dp else 28.dp,
+                        onDownPress = { feedback?.onTick() },
+                        onClick = { onRecordStoreClicked() }
+                    )
+
                     MechanicalButton(
                         label = if (isSpotifyLoggedIn) "🟢 LINKED" else "🟢 SPOTIFY",
                         baseColor = if (isSpotifyLoggedIn) Color(0xFF1DB954) else Color(0xFF1B5E20),
                         highlightColor = if (isSpotifyLoggedIn) Color(0xFF4ADE80) else Color(0xFF2E7D32),
                         shadowColor = Color(0xFF0A2910),
                         labelColor = if (isSpotifyLoggedIn) Color(0xFF0A140E) else Color(0xFFE0E0E0),
-                        width = if (isLandscape) 88.dp else 86.dp,
-                        height = if (isLandscape) 25.dp else 30.dp,
+                        width = if (isLandscape) 78.dp else 68.dp,
+                        height = if (isLandscape) 25.dp else 28.dp,
                         onDownPress = { feedback?.onTick() },
                         onClick = { onSpotifyClicked() }
                     )
@@ -965,8 +1206,8 @@ fun DeckScreen(
                         baseColor = Color(0xFF4E342E),
                         highlightColor = Color(0xFF6D4C41),
                         shadowColor = Color(0xFF3E2723),
-                        width = if (isLandscape) 82.dp else 80.dp,
-                        height = if (isLandscape) 25.dp else 30.dp,
+                        width = if (isLandscape) 74.dp else 64.dp,
+                        height = if (isLandscape) 25.dp else 28.dp,
                         onDownPress = { feedback?.onTick() },
                         onClick = { onBrowseTapesClicked() }
                     )
@@ -976,10 +1217,11 @@ fun DeckScreen(
             if (isLandscape) {
                 // HORIZONTAL (Landscape) Layout - Matches Skin Designer 1:1
                 // 1. Cassette Door
-                val doorEl = vp.getElement("cassette_door")
-                val deckW = cw * (doorEl?.relWidth ?: 0.4883f)
-                val deckX = cw * (doorEl?.relX ?: 0.03125f)
-                val deckY = ch * (doorEl?.relY ?: 0.1826f)
+                val doorEl = vp.getElement("cassette_bay") ?: vp.getElement("cassette_door")
+                val openDoorEl = vp.getElement("deck_door_open")
+                val deckW = cw * (doorEl?.relWidth ?: 0.4918f)
+                val deckX = cw * (doorEl?.relX ?: 0.0317f)
+                val deckY = ch * (doorEl?.relY ?: 0.1505f)
 
                 CassetteDeck(
                     modifier = Modifier
@@ -1002,12 +1244,29 @@ fun DeckScreen(
                     onEjectOrInsert = { onTapeDeckTapped() }
                 )
 
+                // Open Cassette Door (visible only when deck is open, at exact XML designer coordinates)
+                val isOpenDeckLand = !isTapeInserted || isInserting || isEjecting
+                if (isOpenDeckLand) {
+                    openDoorEl?.let { el ->
+                        Image(
+                            painter = pixelPainterResource(id = R.drawable.deck_door_open_front),
+                            contentDescription = "Open Cassette Door",
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = cw * el.relX, y = ch * el.relY)
+                                .size(width = cw * el.relWidth, height = ch * el.relHeight)
+                                .clickable { onTapeDeckTapped() },
+                            contentScale = ContentScale.FillBounds
+                        )
+                    }
+                }
+
                 // 2. Speaker Vents (Two grilles under cassette door)
                 val ventsEl = vp.getElement("speaker_vents")
-                val ventsX = cw * (ventsEl?.relX ?: 0.1202f)
-                val ventsY = ch * (ventsEl?.relY ?: 0.8519f)
-                val ventsW = cw * (ventsEl?.relWidth ?: 0.3716f)
-                val ventsH = ch * (ventsEl?.relHeight ?: 0.0874f)
+                val ventsX = cw * (ventsEl?.relX ?: 0.5464f)
+                val ventsY = ch * (ventsEl?.relY ?: 0.5218f)
+                val ventsW = cw * (ventsEl?.relWidth ?: 0.3443f)
+                val ventsH = ch * (ventsEl?.relHeight ?: 0.1820f)
 
                 Image(
                     painter = pixelPainterResource(id = R.drawable.chassis_speaker_vents),
@@ -1021,9 +1280,9 @@ fun DeckScreen(
 
                 // 3. Mint-Green LCD Display
                 val lcdEl = vp.getElement("lcd_display")
-                val lcdW = cw * (lcdEl?.relWidth ?: 0.3716f)
-                val lcdX = cw * (lcdEl?.relX ?: 0.5792f)
-                val lcdY = ch * (lcdEl?.relY ?: 0.1553f)
+                val lcdW = cw * (lcdEl?.relWidth ?: 0.4284f)
+                val lcdX = cw * (lcdEl?.relX ?: 0.5464f)
+                val lcdY = ch * (lcdEl?.relY ?: 0.0971f)
 
                 LcdDisplay(
                     modifier = Modifier
@@ -1042,36 +1301,12 @@ fun DeckScreen(
                     isCueing = isCueing
                 )
 
-                // 4. Transport Buttons Bank (Direct 1:1 clean placement matching designer)
-                val btnPrev = vp.getElement("btn_skip_prev")
-                val buttonsX = cw * (btnPrev?.relX ?: 0.5814f)
-                val buttonsW = cw * 0.375f
-                val buttonsTopY = ch * (btnPrev?.relY ?: 0.6602f)
-
-                TransportButtonsRow(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = buttonsX, y = buttonsTopY)
-                        .width(buttonsW),
-                    isPlaying = isPlaying,
-                    isTapeRunning = isTapeRunning,
-                    currentPositionMs = currentPositionMs,
-                    totalDurationMs = totalDurationMs,
-                    feedback = feedback,
-                    onPlay = onPlay,
-                    onStop = onStop,
-                    onSkipPrev = onSkipPrev,
-                    onSkip = onSkip,
-                    onEject = onEject,
-                    onSeek = onSeek
-                )
-
-                // 5. Shuffle Switch
+                // 4. Shuffle Switch
                 val shuffleEl = vp.getElement("switch_shuffle")
-                val shuffleX = cw * (shuffleEl?.relX ?: 0.6656f)
-                val shuffleY = ch * (shuffleEl?.relY ?: 0.8495f)
+                val shuffleX = cw * (shuffleEl?.relX ?: 0.5574f)
+                val shuffleY = ch * (shuffleEl?.relY ?: 0.6675f)
                 val switchW = cw * (shuffleEl?.relWidth ?: 0.0656f)
-                val switchH = ch * (shuffleEl?.relHeight ?: 0.0728f)
+                val switchH = ch * (shuffleEl?.relHeight ?: 0.0752f)
 
                 Box(
                     modifier = Modifier
@@ -1091,10 +1326,10 @@ fun DeckScreen(
                     )
                 }
 
-                // 6. Repeat Switch
+                // 5. Repeat Switch
                 val repeatEl = vp.getElement("switch_repeat")
-                val repeatX = cw * (repeatEl?.relX ?: 0.8186f)
-                val repeatY = ch * (repeatEl?.relY ?: 0.8495f)
+                val repeatX = cw * (repeatEl?.relX ?: 0.6448f)
+                val repeatY = ch * (repeatEl?.relY ?: 0.6675f)
 
                 Box(
                     modifier = Modifier
@@ -1113,13 +1348,30 @@ fun DeckScreen(
                         }
                     )
                 }
+
+                // 6. Transport Buttons Bank (Direct 1:1 placement matching designer)
+                SkinTransportControls(
+                    vp = vp,
+                    cw = cw,
+                    ch = ch,
+                    isPlaying = isPlaying,
+                    isTapeRunning = isTapeRunning,
+                    feedback = feedback,
+                    onPlay = onPlay,
+                    onStop = onStop,
+                    onSkipPrev = onSkipPrev,
+                    onSkip = onSkip,
+                    onEject = onEject,
+                    onSeek = onSeek
+                )
             } else {
                 // VERTICAL (Portrait) Layout - Matches Skin Designer 1:1
-                // Cassette Door
-                val doorEl = vp.getElement("cassette_door")
-                val deckX = cw * (doorEl?.relX ?: 0.0534f)
-                val deckY = ch * (doorEl?.relY ?: 0.1301f)
-                val deckW = cw * (doorEl?.relWidth ?: 0.8738f)
+                // 1. Cassette Door
+                val doorEl = vp.getElement("cassette_bay") ?: vp.getElement("cassette_door")
+                val openDoorEl = vp.getElement("deck_door_open")
+                val deckX = cw * (doorEl?.relX ?: 0.0437f)
+                val deckY = ch * (doorEl?.relY ?: 0.0546f)
+                val deckW = cw * (doorEl?.relWidth ?: 0.9102f)
 
                 CassetteDeck(
                     modifier = Modifier
@@ -1142,11 +1394,45 @@ fun DeckScreen(
                     onEjectOrInsert = { onTapeDeckTapped() }
                 )
 
-                // Mint-Green LCD Display
+                // Open Cassette Door (visible only when deck is open, at exact XML designer coordinates)
+                val isOpenDeckLand = !isTapeInserted || isInserting || isEjecting
+                if (isOpenDeckLand) {
+                    openDoorEl?.let { el ->
+                        Image(
+                            painter = pixelPainterResource(id = R.drawable.deck_door_open_front),
+                            contentDescription = "Open Cassette Door",
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = cw * el.relX, y = ch * el.relY)
+                                .size(width = cw * el.relWidth, height = ch * el.relHeight)
+                                .clickable { onTapeDeckTapped() },
+                            contentScale = ContentScale.FillBounds
+                        )
+                    }
+                }
+
+                // 2. Speaker Vents (Directly below cassette door in portrait)
+                val ventsEl = vp.getElement("speaker_vents")
+                val ventsX = cw * (ventsEl?.relX ?: 0.1214f)
+                val ventsY = ch * (ventsEl?.relY ?: 0.3005f)
+                val ventsW = cw * (ventsEl?.relWidth ?: 0.7646f)
+                val ventsH = ch * (ventsEl?.relHeight ?: 0.0820f)
+
+                Image(
+                    painter = pixelPainterResource(id = R.drawable.chassis_speaker_vents),
+                    contentDescription = "Speaker Vents",
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = ventsX, y = ventsY)
+                        .size(width = ventsW, height = ventsH),
+                    contentScale = ContentScale.FillBounds
+                )
+
+                // 3. Mint-Green LCD Display
                 val lcdEl = vp.getElement("lcd_display")
-                val lcdX = cw * (lcdEl?.relX ?: 0.0534f)
-                val lcdY = ch * (lcdEl?.relY ?: 0.4273f)
-                val lcdW = cw * (lcdEl?.relWidth ?: 0.8738f)
+                val lcdX = cw * (lcdEl?.relX ?: 0.0243f)
+                val lcdY = ch * (lcdEl?.relY ?: 0.3934f)
+                val lcdW = cw * (lcdEl?.relWidth ?: 0.9515f)
 
                 LcdDisplay(
                     modifier = Modifier
@@ -1165,15 +1451,15 @@ fun DeckScreen(
                     isCueing = isCueing
                 )
 
-                // Shuffle Switch
+                // 4. Shuffle Switch
                 val shuffleEl = vp.getElement("switch_shuffle")
                 val repeatEl = vp.getElement("switch_repeat")
-                val shuffleX = cw * (shuffleEl?.relX ?: 0.1286f)
-                val shuffleY = ch * (shuffleEl?.relY ?: 0.6514f)
-                val switchW = cw * (shuffleEl?.relWidth ?: 0.1553f)
-                val switchH = ch * (shuffleEl?.relHeight ?: 0.0350f)
-                val repeatX = cw * (repeatEl?.relX ?: 0.7209f)
-                val repeatY = ch * (repeatEl?.relY ?: 0.6546f)
+                val shuffleX = cw * (shuffleEl?.relX ?: 0.1214f)
+                val shuffleY = ch * (shuffleEl?.relY ?: 0.5956f)
+                val switchW = cw * (shuffleEl?.relWidth ?: 0.1456f)
+                val switchH = ch * (shuffleEl?.relHeight ?: 0.0339f)
+                val repeatX = cw * (repeatEl?.relX ?: 0.7039f)
+                val repeatY = ch * (repeatEl?.relY ?: 0.5956f)
 
                 Box(
                     modifier = Modifier
@@ -1211,21 +1497,13 @@ fun DeckScreen(
                     )
                 }
 
-                // Transport Buttons Row
-                val skipPrevEl = vp.getElement("btn_skip_prev")
-                val buttonsX = cw * (skipPrevEl?.relX ?: 0.0704f)
-                val buttonsY = ch * (skipPrevEl?.relY ?: 0.7224f)
-                val buttonsW = cw * 0.83f
-
-                TransportButtonsRow(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = buttonsX, y = buttonsY)
-                        .width(buttonsW),
+                // 5. Transport Buttons (Direct 1:1 placement matching designer)
+                SkinTransportControls(
+                    vp = vp,
+                    cw = cw,
+                    ch = ch,
                     isPlaying = isPlaying,
                     isTapeRunning = isTapeRunning,
-                    currentPositionMs = currentPositionMs,
-                    totalDurationMs = totalDurationMs,
                     feedback = feedback,
                     onPlay = onPlay,
                     onStop = onStop,
@@ -1233,23 +1511,6 @@ fun DeckScreen(
                     onSkip = onSkip,
                     onEject = onEject,
                     onSeek = onSeek
-                )
-
-                // Speaker Vents
-                val ventsEl = vp.getElement("speaker_vents")
-                val ventsX = cw * (ventsEl?.relX ?: 0.0631f)
-                val ventsY = ch * (ventsEl?.relY ?: 0.8426f)
-                val ventsW = cw * (ventsEl?.relWidth ?: 0.8738f)
-                val ventsH = ch * (ventsEl?.relHeight ?: 0.0459f)
-
-                Image(
-                    painter = pixelPainterResource(id = R.drawable.chassis_speaker_vents),
-                    contentDescription = "Speaker Vents",
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = ventsX, y = ventsY)
-                        .size(width = ventsW, height = ventsH),
-                    contentScale = ContentScale.FillBounds
                 )
             }
         }
@@ -1334,6 +1595,188 @@ private fun TransportButtonLabelsRow(isTapeRunning: Boolean) {
                 fontWeight = FontWeight.Bold,
                 fontSize = labelSize
             )
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.SkinTransportControls(
+    vp: com.retro.pixelplayer.skin.ViewportSkin,
+    cw: Dp,
+    ch: Dp,
+    isPlaying: Boolean,
+    isTapeRunning: Boolean,
+    feedback: MechanicalFeedback?,
+    onPlay: () -> Unit,
+    onStop: () -> Unit,
+    onSkipPrev: () -> Unit,
+    onSkip: () -> Unit,
+    onEject: () -> Unit,
+    onSeek: (Long) -> Unit
+) {
+    val skipPrevEl = vp.getElement("btn_skip_prev")
+    val rewindEl = vp.getElement("btn_rewind")
+    val playEl = vp.getElement("btn_play")
+    val fastFwdEl = vp.getElement("btn_fast_fwd")
+    val skipNextEl = vp.getElement("btn_skip_next")
+    val stopEl = vp.getElement("btn_stop")
+    val ejectEl = vp.getElement("btn_eject")
+
+    // 1. Skip Prev
+    skipPrevEl?.let { el ->
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = cw * el.relX, y = ch * el.relY)
+        ) {
+            PixelArtButton(
+                unpressedResId = R.drawable.btn_skip_prev_unpressed,
+                pressedResId = R.drawable.btn_skip_prev_pressed,
+                width = cw * el.relWidth,
+                height = ch * el.relHeight,
+                onDownPress = { feedback?.onTick() },
+                onClick = { onSkipPrev() }
+            )
+        }
+    }
+
+    // 2. Rewind
+    rewindEl?.let { el ->
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = cw * el.relX, y = ch * el.relY)
+        ) {
+            PixelArtButton(
+                unpressedResId = R.drawable.btn_rewind_unpressed,
+                pressedResId = R.drawable.btn_rewind_pressed,
+                width = cw * el.relWidth,
+                height = ch * el.relHeight,
+                onDownPress = { feedback?.onRewindPress() },
+                onHoldRepeat = {
+                    feedback?.onTick()
+                    onSeek(-5_000L)
+                },
+                onClick = {
+                    onSeek(-10_000L)
+                }
+            )
+        }
+    }
+
+    // 3. Play
+    playEl?.let { el ->
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = cw * el.relX, y = ch * el.relY)
+        ) {
+            PixelArtButton(
+                unpressedResId = R.drawable.btn_play_unpressed,
+                pressedResId = R.drawable.btn_play_pressed,
+                isLatched = isPlaying,
+                width = cw * el.relWidth,
+                height = ch * el.relHeight,
+                onDownPress = { feedback?.onPlayPress() },
+                onClick = { onPlay() }
+            )
+        }
+    }
+
+    // 4. Fast Forward
+    fastFwdEl?.let { el ->
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = cw * el.relX, y = ch * el.relY)
+        ) {
+            PixelArtButton(
+                unpressedResId = R.drawable.btn_fast_fwd_unpressed,
+                pressedResId = R.drawable.btn_fast_fwd_pressed,
+                width = cw * el.relWidth,
+                height = ch * el.relHeight,
+                onDownPress = { feedback?.onRewindPress() },
+                onHoldRepeat = {
+                    feedback?.onTick()
+                    onSeek(5_000L)
+                },
+                onClick = {
+                    onSeek(10_000L)
+                }
+            )
+        }
+    }
+
+    // 5. Skip Next
+    skipNextEl?.let { el ->
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = cw * el.relX, y = ch * el.relY)
+        ) {
+            PixelArtButton(
+                unpressedResId = R.drawable.btn_skip_next_unpressed,
+                pressedResId = R.drawable.btn_skip_next_pressed,
+                width = cw * el.relWidth,
+                height = ch * el.relHeight,
+                onDownPress = { feedback?.onTick() },
+                onClick = { onSkip() }
+            )
+        }
+    }
+
+    // 6. Stop / Dual-purpose Stop-Eject
+    val isSeparateEject = ejectEl != null && stopEl != null &&
+        (kotlin.math.abs(ejectEl.x - stopEl.x) > 20f || kotlin.math.abs(ejectEl.y - stopEl.y) > 20f)
+
+    stopEl?.let { el ->
+        val showStop = isSeparateEject || isTapeRunning
+        val btnW = if (!showStop && ejectEl != null) cw * ejectEl.relWidth else cw * el.relWidth
+        val btnH = if (!showStop && ejectEl != null) ch * ejectEl.relHeight else ch * el.relHeight
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = cw * el.relX, y = ch * el.relY)
+        ) {
+            if (showStop) {
+                PixelArtButton(
+                    unpressedResId = R.drawable.btn_stop_unpressed,
+                    pressedResId = R.drawable.btn_stop_pressed,
+                    width = btnW,
+                    height = btnH,
+                    onDownPress = { feedback?.onStopPress() },
+                    onClick = { onStop() }
+                )
+            } else {
+                PixelArtButton(
+                    unpressedResId = R.drawable.btn_eject_unpressed,
+                    pressedResId = R.drawable.btn_eject_pressed,
+                    width = btnW,
+                    height = btnH,
+                    onDownPress = { feedback?.onTapeLatch() },
+                    onClick = { onEject() }
+                )
+            }
+        }
+    }
+
+    // 7. Eject (rendered only if placed as a separate distinct button, or if stopEl doesn't exist)
+    if (isSeparateEject || (stopEl == null && ejectEl != null)) {
+        ejectEl?.let { el ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = cw * el.relX, y = ch * el.relY)
+            ) {
+                PixelArtButton(
+                    unpressedResId = R.drawable.btn_eject_unpressed,
+                    pressedResId = R.drawable.btn_eject_pressed,
+                    width = cw * el.relWidth,
+                    height = ch * el.relHeight,
+                    onDownPress = { feedback?.onTapeLatch() },
+                    onClick = { onEject() }
+                )
+            }
         }
     }
 }

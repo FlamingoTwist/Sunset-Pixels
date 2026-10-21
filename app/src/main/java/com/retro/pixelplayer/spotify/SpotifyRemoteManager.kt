@@ -1,6 +1,10 @@
 package com.retro.pixelplayer.spotify
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
@@ -15,6 +19,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+/**
+ * Traverses context wrappers to find the underlying foreground Activity.
+ * Crucial for Jetpack Compose where LocalContext.current is wrapped in ContextThemeWrapper.
+ */
+fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
 /**
  * Manages Spotify playback seamlessly in the background without EVER switching
@@ -43,9 +60,6 @@ object SpotifyRemoteManager {
     @Volatile
     private var isConnecting = false
     private var pendingPlayUri: String? = null
-    private var pendingContextUri: String? = null
-    private var pendingTrackIndex: Int? = null
-    private var pendingTrackUris: List<String>? = null
 
     fun isInstalled(context: Context): Boolean {
         return try {
@@ -68,8 +82,17 @@ object SpotifyRemoteManager {
         onConnected: (() -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null
     ) {
+        // Guarantee execution on Main Thread with Main Looper
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post {
+                connect(context, showAuthView, onConnected, onError)
+            }
+            return
+        }
+
         if (appRemote?.isConnected == true) {
             _isConnected.value = true
+            _needsAuthorization.value = false
             appRemote?.playerApi?.playerState?.setResultCallback { state ->
                 if (state != null) {
                     _playerState.value = state
@@ -79,7 +102,8 @@ object SpotifyRemoteManager {
             return
         }
 
-        if (isConnecting) return
+        // Never lock out the user if they explicitly tapped Authorize
+        if (isConnecting && !showAuthView) return
         isConnecting = true
 
         val clientId = SpotifyManager.getSavedClientId(context)
@@ -88,83 +112,69 @@ object SpotifyRemoteManager {
             .showAuthView(showAuthView)
             .build()
 
-        val connectContext = if (showAuthView && context is android.app.Activity) context else context.applicationContext
+        val activity = context.findActivity()
+        val connectContext = if (showAuthView && activity != null) activity else context.applicationContext
 
-        SpotifyAppRemote.connect(connectContext, params, object : Connector.ConnectionListener {
-            override fun onConnected(remote: SpotifyAppRemote) {
-                isConnecting = false
-                appRemote = remote
-                _isConnected.value = true
-                _needsAuthorization.value = false
-                remote.playerApi.playerState?.setResultCallback { state ->
-                    if (state != null) {
-                        _playerState.value = state
-                    }
-                }
-                Log.d(TAG, "SpotifyAppRemote successfully connected!")
+        Log.d(TAG, "Connecting SpotifyAppRemote (showAuthView=$showAuthView, targetContext=${connectContext.javaClass.simpleName})")
 
-                // Subscribe to real-time player state updates (position, duration, isPaused, track info)
-                playerStateSubscription?.cancel()
-                playerStateSubscription = remote.playerApi.subscribeToPlayerState().apply {
-                    setEventCallback { state ->
-                        _playerState.value = state
+        try {
+            SpotifyAppRemote.connect(connectContext, params, object : Connector.ConnectionListener {
+                override fun onConnected(remote: SpotifyAppRemote) {
+                    isConnecting = false
+                    appRemote = remote
+                    _isConnected.value = true
+                    _needsAuthorization.value = false
+                    remote.playerApi.playerState?.setResultCallback { state ->
+                        if (state != null) {
+                            _playerState.value = state
+                        }
                     }
-                    setErrorCallback { error ->
-                        Log.w(TAG, "PlayerState subscription warning: ${error.message}")
-                    }
-                }
+                    Log.d(TAG, "SpotifyAppRemote successfully connected!")
 
-                // If a track was explicitly queued by the user while connecting, play it now
-                val queuedUri = pendingPlayUri
-                if (queuedUri != null) {
-                    val ctx = pendingContextUri
-                    val idx = pendingTrackIndex
-                    val uris = pendingTrackUris
+                    // Subscribe to real-time player state updates (position, duration, isPaused, track info)
+                    playerStateSubscription?.cancel()
+                    playerStateSubscription = remote.playerApi.subscribeToPlayerState().apply {
+                        setEventCallback { state ->
+                            _playerState.value = state
+                        }
+                        setErrorCallback { error ->
+                            Log.w(TAG, "PlayerState subscription warning: ${error.message}")
+                        }
+                    }
+
+                    // If a track was explicitly queued by the user while connecting, play it now
+                    val queuedUri = pendingPlayUri
                     pendingPlayUri = null
-                    pendingContextUri = null
-                    pendingTrackIndex = null
-                    pendingTrackUris = null
-                    play(context, queuedUri, ctx, idx, uris)
-                }
-
-                onConnected?.invoke()
-            }
-
-            override fun onFailure(throwable: Throwable) {
-                isConnecting = false
-                _isConnected.value = false
-                val isAuthRequired = throwable.message?.contains("Explicit user authorization is required", ignoreCase = true) == true
-                if (isAuthRequired) {
-                    _needsAuthorization.value = true
-                }
-                Log.w(TAG, "SpotifyAppRemote connection failure (isAuthRequired=$isAuthRequired): ${throwable.message}")
-
-                // Clear pending play parameters so they don't linger
-                val queuedUri = pendingPlayUri
-                val ctx = pendingContextUri
-                val idx = pendingTrackIndex
-                val uris = pendingTrackUris
-                pendingPlayUri = null
-                pendingContextUri = null
-                pendingTrackIndex = null
-                pendingTrackUris = null
-
-                // If a track was queued by the user, fall back silently to Spotify Web API playback
-                if (queuedUri != null) {
-                    scope.launch {
-                        SpotifyManager.playSpotifyTrack(
-                            context = context,
-                            spotifyUri = queuedUri,
-                            contextUri = ctx,
-                            trackIndex = idx,
-                            allTrackUris = uris
-                        )
+                    if (!queuedUri.isNullOrBlank()) {
+                        play(context, queuedUri)
                     }
+
+                    onConnected?.invoke()
                 }
 
-                onError?.invoke(throwable)
-            }
-        })
+                override fun onFailure(throwable: Throwable) {
+                    isConnecting = false
+                    _isConnected.value = false
+                    val isAuthRequired = throwable.message?.contains("Explicit user authorization is required", ignoreCase = true) == true
+                    if (isAuthRequired) {
+                        _needsAuthorization.value = true
+                        if (!showAuthView) {
+                            Log.d(TAG, "Authorization required, retrying with showAuthView = true")
+                            connect(context, showAuthView = true, onConnected, onError)
+                            return
+                        }
+                    }
+                    Log.w(TAG, "SpotifyAppRemote connection failure (isAuthRequired=$isAuthRequired): ${throwable.message}")
+
+                    pendingPlayUri = null
+                    onError?.invoke(throwable)
+                }
+            })
+        } catch (e: Exception) {
+            isConnecting = false
+            Log.e(TAG, "SpotifyAppRemote.connect thrown exception: ${e.message}", e)
+            onError?.invoke(e)
+        }
     }
 
     /**
@@ -185,35 +195,20 @@ object SpotifyRemoteManager {
 
     fun play(
         context: Context,
-        spotifyUri: String,
-        contextUri: String? = null,
-        trackIndex: Int? = null,
-        allTrackUris: List<String>? = null
+        uri: String
     ) {
         val remote = appRemote
         if (remote != null && remote.isConnected) {
-            remote.playerApi.play(spotifyUri)
+            remote.playerApi.play(uri)
                 .setErrorCallback { error ->
                     Log.w(TAG, "playerApi.play error: ${error.message}")
                 }
         } else {
-            pendingPlayUri = spotifyUri
-            pendingContextUri = contextUri
-            pendingTrackIndex = trackIndex
-            pendingTrackUris = allTrackUris
-
+            pendingPlayUri = uri
             if (isInstalled(context)) {
-                connect(context)
-            } else {
-                scope.launch {
-                    SpotifyManager.playSpotifyTrack(
-                        context = context,
-                        spotifyUri = spotifyUri,
-                        contextUri = contextUri,
-                        trackIndex = trackIndex,
-                        allTrackUris = allTrackUris
-                    )
-                }
+                connect(context, showAuthView = true, onConnected = {
+                    appRemote?.playerApi?.play(uri)
+                })
             }
         }
     }
@@ -222,10 +217,6 @@ object SpotifyRemoteManager {
         val remote = appRemote
         if (remote != null && remote.isConnected) {
             remote.playerApi.pause()
-        } else {
-            scope.launch {
-                SpotifyManager.pauseSpotify(context)
-            }
         }
     }
 
@@ -233,13 +224,8 @@ object SpotifyRemoteManager {
         val remote = appRemote
         if (remote != null && remote.isConnected) {
             remote.playerApi.resume()
-        } else {
-            if (isInstalled(context)) {
-                connect(context)
-            }
-            scope.launch {
-                SpotifyManager.resumeSpotify(context)
-            }
+        } else if (isInstalled(context)) {
+            connect(context)
         }
     }
 
@@ -249,22 +235,10 @@ object SpotifyRemoteManager {
             if (!nextTrackUri.isNullOrBlank()) {
                 remote.playerApi.play(nextTrackUri)
             } else {
-                remote.playerApi.skipNext().setResultCallback {
-                    remote.playerApi.playerState?.setResultCallback { state ->
-                        if (state != null) {
-                            _playerState.value = state
-                        }
-                    }
-                }
+                remote.playerApi.skipNext()
             }
-        } else {
-            if (!nextTrackUri.isNullOrBlank()) {
-                play(context, nextTrackUri)
-            } else {
-                scope.launch {
-                    SpotifyManager.skipSpotifyNext(context)
-                }
-            }
+        } else if (!nextTrackUri.isNullOrBlank()) {
+            play(context, nextTrackUri)
         }
     }
 
@@ -274,22 +248,10 @@ object SpotifyRemoteManager {
             if (!prevTrackUri.isNullOrBlank()) {
                 remote.playerApi.play(prevTrackUri)
             } else {
-                remote.playerApi.skipPrevious().setResultCallback {
-                    remote.playerApi.playerState?.setResultCallback { state ->
-                        if (state != null) {
-                            _playerState.value = state
-                        }
-                    }
-                }
+                remote.playerApi.skipPrevious()
             }
-        } else {
-            if (!prevTrackUri.isNullOrBlank()) {
-                play(context, prevTrackUri)
-            } else {
-                scope.launch {
-                    SpotifyManager.skipSpotifyPrev(context)
-                }
-            }
+        } else if (!prevTrackUri.isNullOrBlank()) {
+            play(context, prevTrackUri)
         }
     }
 
@@ -297,25 +259,21 @@ object SpotifyRemoteManager {
         val remote = appRemote
         if (remote != null && remote.isConnected) {
             remote.playerApi.seekTo(positionMs)
-        } else {
-            scope.launch {
-                SpotifyManager.seekSpotify(context, positionMs)
-            }
         }
     }
 
     fun setShuffle(context: Context, enabled: Boolean) {
-        appRemote?.playerApi?.setShuffle(enabled)
-        scope.launch {
-            SpotifyManager.setSpotifyShuffle(context, enabled)
+        val remote = appRemote
+        if (remote != null && remote.isConnected) {
+            remote.playerApi.setShuffle(enabled)
         }
     }
 
     fun setRepeat(context: Context, enabled: Boolean) {
-        val mode = if (enabled) Repeat.ONE else Repeat.OFF
-        appRemote?.playerApi?.setRepeat(mode)
-        scope.launch {
-            SpotifyManager.setSpotifyRepeat(context, enabled)
+        val remote = appRemote
+        if (remote != null && remote.isConnected) {
+            val mode = if (enabled) Repeat.ONE else Repeat.OFF
+            remote.playerApi.setRepeat(mode)
         }
     }
 

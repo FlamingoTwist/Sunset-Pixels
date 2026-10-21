@@ -25,9 +25,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.retro.pixelplayer.audio.TapeItem
+import com.retro.pixelplayer.audio.TapeType
 import com.retro.pixelplayer.feedback.MechanicalFeedback
 import com.retro.pixelplayer.ui.theme.PixelPalette
 import kotlinx.coroutines.delay
@@ -56,6 +59,7 @@ enum class ShelfMode {
     OVERVIEW,       // The Shelf vs Shoe Box selection
     ARTISTS_LIST,   // Choose which Artist
     ARTIST_TAPES,   // Choose between "All" tape or specific Album tapes
+    ALBUM_TRACKS,   // View and play individual songs on an album
     SHOEBOX_TAPES   // Flick through handmade playlist tapes in shoe box
 }
 
@@ -78,13 +82,29 @@ fun TapeSelectionScreen(
     isSpotifyLoggedIn: Boolean = false,
     onSpotifyClicked: () -> Unit = {},
     onTapeSelected: (TapeItem) -> Unit,
+    onPlayArtistRadio: ((artist: String, tapes: List<TapeItem>) -> Unit)? = null,
+    onPlayTrackFromTape: ((tape: TapeItem, trackIndex: Int) -> Unit)? = null,
+    onAddToMixtape: ((com.retro.pixelplayer.audio.Track) -> Unit)? = null,
+    onViewTapeInlay: (TapeItem) -> Unit = {},
+    onCreateNewMixtape: (() -> Unit)? = null,
+    onOpenRecordStore: (() -> Unit)? = null,
+    initialMode: ShelfMode = ShelfMode.SHOEBOX_TAPES,
+    initialArtist: String? = null,
+    resetKey: Int = 0,
     onBackToPlayer: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
 
-    var mode by remember { mutableStateOf(ShelfMode.OVERVIEW) }
-    var selectedArtist by remember { mutableStateOf<String?>(null) }
-    var sourceFilter by rememberSaveable { mutableStateOf(TapeSourceFilter.ALL) }
+    var mode by remember(initialMode, resetKey) { mutableStateOf(initialMode) }
+    var selectedArtist by remember(initialArtist, resetKey) { mutableStateOf(initialArtist) }
+    var selectedAlbumTape by remember(resetKey) { mutableStateOf<TapeItem?>(null) }
+    var sourceFilter by remember(initialMode, initialArtist, resetKey) { mutableStateOf(TapeSourceFilter.ALL) }
+
+    LaunchedEffect(initialMode, initialArtist, resetKey) {
+        mode = initialMode
+        selectedArtist = initialArtist
+        sourceFilter = TapeSourceFilter.ALL
+    }
 
     // Visual star favourite state (toggles instantly on tap for feedback)
     var visualStarFavouriteIds by remember(favouriteTapeIds) { mutableStateOf(favouriteTapeIds) }
@@ -148,15 +168,9 @@ fun TapeSelectionScreen(
         }
     }
 
-    // Filtered collections based on user source filter
-    val filteredArtistTapes = remember(artistTapes, sourceFilter) {
-        artistTapes.mapValues { (_, tapes) ->
-            when (sourceFilter) {
-                TapeSourceFilter.ALL -> tapes
-                TapeSourceFilter.LOCAL -> tapes.filter { !it.isSpotify }
-                TapeSourceFilter.SPOTIFY -> tapes.filter { it.isSpotify }
-            }
-        }.filterValues { it.isNotEmpty() }
+    // Artist Shelf is 100% Local Files
+    val filteredArtistTapes = remember(artistTapes) {
+        artistTapes
     }
 
     val filteredPlaylistTapes = remember(playlistTapes, sourceFilter, displayedFavouriteIds) {
@@ -197,8 +211,10 @@ fun TapeSelectionScreen(
                 height = 32.dp,
                 onDownPress = { feedback.onTick() },
                 onClick = {
-                    if (mode != ShelfMode.OVERVIEW) {
-                        mode = if (mode == ShelfMode.ARTIST_TAPES) ShelfMode.ARTISTS_LIST else ShelfMode.OVERVIEW
+                    if (mode == ShelfMode.ALBUM_TRACKS) {
+                        mode = ShelfMode.ARTIST_TAPES
+                    } else if (mode == ShelfMode.ARTIST_TAPES) {
+                        mode = ShelfMode.ARTISTS_LIST
                     } else {
                         onBackToPlayer()
                     }
@@ -207,30 +223,109 @@ fun TapeSelectionScreen(
 
             Text(
                 text = when (mode) {
-                    ShelfMode.OVERVIEW -> "CASSETTE COLLECTION"
+                    ShelfMode.OVERVIEW -> "COLLECTION"
                     ShelfMode.ARTISTS_LIST -> "ARTIST SHELF"
                     ShelfMode.ARTIST_TAPES -> selectedArtist?.uppercase() ?: "TAPES"
+                    ShelfMode.ALBUM_TRACKS -> selectedAlbumTape?.title?.uppercase() ?: "ALBUM TRACKS"
                     ShelfMode.SHOEBOX_TAPES -> "PLAYLIST SHOE BOX"
                 },
                 color = PixelPalette.ChassisHighlight,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Black,
-                fontSize = 13.sp
+                fontSize = 12.sp
             )
 
-            MechanicalButton(
-                label = if (isSpotifyLoggedIn) "🟢 LINKED" else "🟢 SPOTIFY",
-                baseColor = Color(0xFF1B5E20),
-                highlightColor = Color(0xFF2E7D32),
-                shadowColor = Color(0xFF0D3B10),
-                width = 88.dp,
-                height = 32.dp,
-                onDownPress = { feedback.onTick() },
-                onClick = { onSpotifyClicked() }
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (onOpenRecordStore != null) {
+                    MechanicalButton(
+                        label = "📻 STORE",
+                        baseColor = Color(0xFFE65100),
+                        highlightColor = Color(0xFFFF9800),
+                        shadowColor = Color(0xFFBF360C),
+                        width = 72.dp,
+                        height = 32.dp,
+                        onDownPress = { feedback.onTick() },
+                        onClick = { onOpenRecordStore() }
+                    )
+                }
+
+                MechanicalButton(
+                    label = if (isSpotifyLoggedIn) "🟢 LINKED" else "🟢 SPOTIFY",
+                    baseColor = Color(0xFF1B5E20),
+                    highlightColor = Color(0xFF2E7D32),
+                    shadowColor = Color(0xFF0D3B10),
+                    width = 84.dp,
+                    height = 32.dp,
+                    onDownPress = { feedback.onTick() },
+                    onClick = { onSpotifyClicked() }
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Shelf Switcher Tabs: 📦 SHOE BOX (MIXTAPES) vs 📚 ARTIST SHELF
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xFF1B1622))
+                .border(1.dp, Color(0xFF3E334D), RoundedCornerShape(6.dp))
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            val isShoebox = mode == ShelfMode.SHOEBOX_TAPES
+            val isArtists = mode == ShelfMode.ARTISTS_LIST || mode == ShelfMode.ARTIST_TAPES || mode == ShelfMode.ALBUM_TRACKS
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isShoebox) Color(0xFF8D6E63) else Color(0xFF271F30))
+                    .border(1.dp, if (isShoebox) Color(0xFFFFD54F) else Color.Transparent, RoundedCornerShape(4.dp))
+                    .clickable {
+                        feedback.onTick()
+                        mode = ShelfMode.SHOEBOX_TAPES
+                    }
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "📦 SHOE BOX (MIXTAPES)",
+                    color = if (isShoebox) Color.White else Color(0xFFAAA0B8),
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 11.sp
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isArtists) Color(0xFF4E342E) else Color(0xFF271F30))
+                    .border(1.dp, if (isArtists) Color(0xFFFFD54F) else Color.Transparent, RoundedCornerShape(4.dp))
+                    .clickable {
+                        feedback.onTick()
+                        mode = ShelfMode.ARTISTS_LIST
+                    }
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "📚 ARTIST SHELF",
+                    color = if (isArtists) Color(0xFFFFD54F) else Color(0xFFAAA0B8),
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 11.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
 
         // 3-Way Source Filter Toggle: ALL | LOCAL | SPOTIFY
         TapeFilterBar(
@@ -453,11 +548,7 @@ fun TapeSelectionScreen(
                                 fontSize = 14.sp
                             )
                             Text(
-                                text = when (sourceFilter) {
-                                    TapeSourceFilter.LOCAL -> "No local artist audio files found on device."
-                                    TapeSourceFilter.SPOTIFY -> if (isSpotifyLoggedIn) "No Spotify artists found in your library." else "Spotify is not linked. Tap SPOTIFY above to log in."
-                                    TapeSourceFilter.ALL -> "No cassette tapes available."
-                                },
+                                text = "No local artist audio files found on device.",
                                 color = Color(0xFFAAA0B8),
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp,
@@ -523,13 +614,8 @@ fun TapeSelectionScreen(
                                             fontWeight = FontWeight.Black,
                                             fontSize = 13.sp
                                         )
-                                        val localCount = tapes.count { !it.isSpotify }
-                                        val spotifyCount = tapes.count { it.isSpotify }
-                                        val subtitleText = when {
-                                            localCount > 0 && spotifyCount > 0 -> "$localCount Local • $spotifyCount Spotify"
-                                            spotifyCount > 0 -> "$spotifyCount Spotify Album${if (spotifyCount > 1) "s" else ""}"
-                                            else -> "$localCount Local Tape${if (localCount > 1) "s" else ""}"
-                                        }
+                                        val songCount = tapes.sumOf { it.tracks.size }
+                                        val subtitleText = "${tapes.size} Album${if (tapes.size > 1) "s" else ""} • $songCount Songs"
                                         Text(
                                             text = subtitleText,
                                             color = PixelPalette.ChassisHighlight,
@@ -538,11 +624,25 @@ fun TapeSelectionScreen(
                                         )
                                     }
 
-                                    Text(
-                                        text = "▶",
-                                        color = PixelPalette.PlayGreen,
-                                        fontSize = 14.sp
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(PixelPalette.PlayGreen)
+                                            .clickable {
+                                                feedback.onTapeLatch()
+                                                val radioTape = tapes.firstOrNull { it.type == TapeType.ARTIST_ALL } ?: tapes.firstOrNull()
+                                                if (radioTape != null) handleSelectTape(radioTape)
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = "▶ ALL",
+                                            color = Color(0xFF0D2818),
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 10.sp
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -554,13 +654,66 @@ fun TapeSelectionScreen(
                 // Flick through the artist's tapes (ALL tape + Album tapes)
                 val tapes = filteredArtistTapes[selectedArtist] ?: emptyList()
 
-                Text(
-                    text = "FLICK THROUGH ${selectedArtist?.uppercase()}'S TAPES:",
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                // Header with ◀ ARTISTS back button and ▶ RADIO play button
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xFF37474F))
+                            .clickable {
+                                feedback.onTick()
+                                mode = ShelfMode.ARTISTS_LIST
+                            }
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "◀ ARTISTS",
+                            color = Color.White,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        )
+                    }
+
+                    Text(
+                        text = "${selectedArtist?.uppercase() ?: "ARTIST"}'S ALBUMS",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false).padding(horizontal = 6.dp)
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(PixelPalette.PlayGreen)
+                            .clickable {
+                                feedback.onTapeLatch()
+                                val artistName = selectedArtist ?: ""
+                                val artistTapeList = filteredArtistTapes[artistName] ?: emptyList()
+                                val radioTape = artistTapeList.firstOrNull { it.type == TapeType.ARTIST_ALL } ?: artistTapeList.firstOrNull()
+                                if (radioTape != null) handleSelectTape(radioTape)
+                            }
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "▶ ALL",
+                            color = Color(0xFF0D2818),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
 
                 if (tapes.isEmpty()) {
                     Box(
@@ -612,11 +765,238 @@ fun TapeSelectionScreen(
                                 feedback = feedback,
                                 isFavourite = visualStarFavouriteIds.contains(tape.id),
                                 onToggleFavourite = { handleToggleFavourite(tape.id) },
-                                onSelect = { handleSelectTape(tape) },
+                                onViewInlay = { onViewTapeInlay(tape) },
+                                onPlay = { handleSelectTape(tape) },
+                                onSelect = {
+                                    feedback.onTick()
+                                    selectedAlbumTape = tape
+                                    mode = ShelfMode.ALBUM_TRACKS
+                                },
                                 modifier = Modifier
                                     .animateItem()
                                     .offset(x = itemOffsetX)
                             )
+                        }
+                    }
+                }
+            }
+
+            ShelfMode.ALBUM_TRACKS -> {
+                val albumTape = selectedAlbumTape
+                if (albumTape == null) {
+                    mode = ShelfMode.ARTIST_TAPES
+                } else {
+                    // Top Header with ◀ ALBUMS and ▶ PLAY ALBUM
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color(0xFF37474F))
+                                .clickable {
+                                    feedback.onTick()
+                                    mode = ShelfMode.ARTIST_TAPES
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "◀ ALBUMS",
+                                color = Color.White,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(PixelPalette.PlayGreen)
+                                .clickable {
+                                    feedback.onTapeLatch()
+                                    handleSelectTape(albumTape)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "▶ PLAY ALBUM",
+                                color = Color(0xFF0D2818),
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+
+                    // Album Header Card
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(albumTape.spineColorHex))
+                            .border(2.dp, Color.Black, RoundedCornerShape(6.dp))
+                            .padding(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            if (albumTape.artworkBitmap != null) {
+                                Image(
+                                    bitmap = albumTape.artworkBitmap.asImageBitmap(),
+                                    contentDescription = albumTape.title,
+                                    filterQuality = FilterQuality.None,
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = albumTape.title.uppercase(),
+                                    color = Color.White,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = albumTape.subtitle,
+                                    color = Color(albumTape.labelColorHex),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${albumTape.tracks.size} TRACKS • EQ: 120µs",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Tracks List
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        itemsIndexed(albumTape.tracks, key = { index, track -> track.id.toString() + index }) { index, track ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFF261D2E))
+                                    .border(1.dp, Color(0xFF453654), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = String.format("%02d.", index + 1),
+                                        color = Color(0xFFFFD54F),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.width(26.dp)
+                                    )
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = track.title,
+                                            color = Color.White,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = track.artist,
+                                                color = Color(0xFFAAA0B8),
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 9.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (track.durationMs > 0) {
+                                                val durSec = (track.durationMs / 1000) % 60
+                                                val durMin = (track.durationMs / 1000) / 60
+                                                Text(
+                                                    text = String.format("%02d:%02d", durMin, durSec),
+                                                    color = Color.White.copy(alpha = 0.4f),
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 9.sp
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // PLAY Track Button
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(PixelPalette.PlayGreen)
+                                            .clickable {
+                                                feedback.onTapeLatch()
+                                                if (onPlayTrackFromTape != null) {
+                                                    onPlayTrackFromTape(albumTape, index)
+                                                } else {
+                                                    handleSelectTape(albumTape)
+                                                }
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(
+                                            text = "▶",
+                                            color = Color(0xFF0D2818),
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    // REC Button
+                                    if (onAddToMixtape != null) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xFFD32F2F))
+                                                .clickable {
+                                                    feedback.onTick()
+                                                    onAddToMixtape(track)
+                                                }
+                                                .padding(horizontal = 6.dp, vertical = 5.dp)
+                                        ) {
+                                            Text(
+                                                text = "🔴",
+                                                fontSize = 9.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -674,6 +1054,58 @@ fun TapeSelectionScreen(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        if (onCreateNewMixtape != null) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(50.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF3E2D24))
+                                        .border(2.dp, Color(0xFFFFD54F), RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            feedback.onTick()
+                                            onCreateNewMixtape()
+                                        }
+                                        .padding(horizontal = 12.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Text(text = "📼", fontSize = 18.sp)
+                                            Column {
+                                                Text(
+                                                    text = "+ CREATE BLANK MIXTAPE",
+                                                    color = Color(0xFFFFD54F),
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 11.sp
+                                                )
+                                                Text(
+                                                    text = "Record local and Spotify tracks onto a custom tape",
+                                                    color = Color(0xFFD7CCC8),
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 9.sp
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = "▶",
+                                            color = Color(0xFFFFD54F),
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         items(filteredPlaylistTapes, key = { it.id }) { tape ->
                             val itemOffsetX = when {
                                 tape.id == animatingFavTapeId -> favOffsetX.value.dp
@@ -686,6 +1118,7 @@ fun TapeSelectionScreen(
                                 feedback = feedback,
                                 isFavourite = visualStarFavouriteIds.contains(tape.id),
                                 onToggleFavourite = { handleToggleFavourite(tape.id) },
+                                onViewInlay = { onViewTapeInlay(tape) },
                                 onSelect = { handleSelectTape(tape) },
                                 modifier = Modifier
                                     .animateItem()
@@ -734,7 +1167,7 @@ private fun TapeFilterBar(
                 Text(
                     text = when (filter) {
                         TapeSourceFilter.ALL -> "ALL TAPES"
-                        TapeSourceFilter.LOCAL -> "💾 LOCAL"
+                        TapeSourceFilter.LOCAL -> "💾 MIXTAPES"
                         TapeSourceFilter.SPOTIFY -> "🟢 SPOTIFY"
                     },
                     color = if (isSelected) Color(0xFF0D2818) else Color(0xFFB3A8C7),
@@ -757,6 +1190,8 @@ fun TapeSpineItem(
     feedback: MechanicalFeedback,
     isFavourite: Boolean = false,
     onToggleFavourite: (() -> Unit)? = null,
+    onViewInlay: (() -> Unit)? = null,
+    onPlay: (() -> Unit)? = null,
     onSelect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -861,6 +1296,53 @@ fun TapeSpineItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+
+            // Direct Play Button (on album or mixtape spine)
+            if (onPlay != null) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(PixelPalette.PlayGreen)
+                        .clickable {
+                            feedback.onTapeLatch()
+                            onPlay()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "▶",
+                        color = Color(0xFF0D2818),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+
+            // Inside Sleeve / Tracks button
+            if (onViewInlay != null) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF261D2E))
+                        .border(
+                            width = 1.dp,
+                            color = Color(0xFF675677),
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .clickable {
+                            feedback.onTick()
+                            onViewInlay()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "📋",
+                        fontSize = 14.sp
+                    )
+                }
             }
 
             // Favourite Star Button

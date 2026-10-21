@@ -39,3 +39,10 @@ local.properties
 # OS-specific files
 .DS_Store
 Thumbs.db
+
+# Scratch and inspection tools
+tools/*.png
+tools/*.lua
+tools/*.txt
+tools/apk_extracted/
+

@@ -667,6 +667,102 @@
     justify-content: flex-end;
     gap: 10px;
   }
+
+  .badge-res {
+    background: #1a2333;
+    color: #4da6ff;
+    border: 1px solid #234567;
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 11px;
+    font-family: monospace;
+    font-weight: bold;
+    display: inline-block;
+  }
+  .multiplier-row {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+    align-items: center;
+  }
+  .multiplier-btn {
+    flex: 1;
+    padding: 4px 6px;
+    font-size: 11px;
+    background: #232532;
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: center;
+  }
+  .multiplier-btn:hover {
+    background: #323545;
+    border-color: #4da6ff;
+  }
+  .multiplier-btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .add-sprite-modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .add-sprite-card {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    width: 600px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+  }
+  .sprite-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px;
+    padding: 12px;
+    overflow-y: auto;
+    max-height: 60vh;
+  }
+  .sprite-grid-item {
+    background: #161720;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .sprite-grid-item:hover {
+    border-color: var(--accent);
+    background: #222533;
+  }
+  .sprite-preview-box {
+    width: 64px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0d0e14;
+    border-radius: 4px;
+  }
+  .sprite-preview-box img {
+    max-width: 60px;
+    max-height: 60px;
+    image-rendering: pixelated;
+  }
+
 </style>
 </head>
 <body>
@@ -698,6 +794,9 @@
     </select>
     <button id="btn-toggle-insets" class="active" onclick="toggleInsets()">
       🛡️ Safe Insets
+    </button>
+    <button id="btn-toggle-clip" class="active" onclick="toggleClipBounds()" title="Toggle whether elements extending beyond the screen edge are clipped or visible">
+      ✂️ Clip Bounds
     </button>
     <button id="btn-toggle-sim" onclick="toggleSimulation()">
       ▶️ Test / Play
@@ -872,15 +971,32 @@
       </div>
 
       <div>
-        <div class="prop-label" style="margin-bottom: 6px;">Size (Pixels)</div>
-        <div class="prop-row">
+        <div class="prop-label" style="margin-bottom: 6px;">Original Resolution (Immutable)</div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span id="prop-base-res" class="badge-res">0 × 0 px</span>
+          <span style="font-size: 10px; color: var(--text-muted);">Protected Pixel Art</span>
+        </div>
+        
+        <div class="prop-label" style="margin-bottom: 4px;">Scale Multiplier</div>
+        <div class="multiplier-row">
+          <button class="multiplier-btn" onclick="setMultiplier(0.5)">0.5x</button>
+          <button class="multiplier-btn" onclick="setMultiplier(1)">1x</button>
+          <button class="multiplier-btn" onclick="setMultiplier(1.5)">1.5x</button>
+          <button class="multiplier-btn" onclick="setMultiplier(2)">2x</button>
+          <button class="multiplier-btn" onclick="setMultiplier(3)">3x</button>
+          <input type="number" id="prop-multiplier" step="0.1" min="0.1" max="10" 
+                 style="width: 54px; text-align: center; background: #12131a; border: 1px solid var(--panel-border); border-radius: 4px; padding: 4px; color: #fff; font-size: 11px;"
+                 onchange="updateSelectedMultiplier(this.value)">
+        </div>
+
+        <div class="prop-row" style="margin-top: 8px;">
           <div class="prop-field">
             <span>W</span>
-            <input type="number" id="prop-w" onchange="updateSelectedProp('w', this.value)">
+            <input type="number" id="prop-w" readonly style="background: #181922; color: #8c90a4;">
           </div>
           <div class="prop-field">
             <span>H</span>
-            <input type="number" id="prop-h" onchange="updateSelectedProp('h', this.value)">
+            <input type="number" id="prop-h" readonly style="background: #181922; color: #8c90a4;">
           </div>
         </div>
       </div>
@@ -970,37 +1086,276 @@ const VIEWPORTS = {
 };
 
 const DEFAULT_SKIN = {
-  portrait: [
-    { id: 'cassette_door', name: 'Cassette Door', sprite: 'chassis_tape_door_frame.png', x: 26, y: 70, w: 360, h: 220, isCassette: true },
-    { id: 'speaker_vents', name: 'Speaker Vents', sprite: 'chassis_speaker_vents.png', x: 26, y: 310, w: 360, h: 42 },
-    { id: 'lcd_display', name: 'LCD Display', sprite: 'chassis_lcd_frame.png', x: 26, y: 375, w: 360, h: 180, isLcd: true },
-    { id: 'switch_shuffle', name: 'Shuffle Switch', sprite: 'switch_shuffle_off.png', x: 40, y: 600, w: 64, h: 32 },
-    { id: 'switch_repeat', name: 'Repeat Switch', sprite: 'switch_repeat_off.png', x: 120, y: 600, w: 64, h: 32 },
-    { id: 'btn_skip_prev', name: 'Prev Track', sprite: 'btn_skip_prev_unpressed.png', x: 24, y: 680, w: 48, h: 48 },
-    { id: 'btn_rewind', name: 'Rewind', sprite: 'btn_rewind_unpressed.png', x: 80, y: 680, w: 48, h: 48 },
-    { id: 'btn_play', name: 'Play', sprite: 'btn_play_unpressed.png', x: 136, y: 680, w: 56, h: 48 },
-    { id: 'btn_pause', name: 'Pause', sprite: 'btn_pause_unpressed.png', x: 200, y: 680, w: 56, h: 48 },
-    { id: 'btn_fast_fwd', name: 'Fast Forward', sprite: 'btn_fast_fwd_unpressed.png', x: 264, y: 680, w: 48, h: 48 },
-    { id: 'btn_skip_next', name: 'Next Track', sprite: 'btn_skip_next_unpressed.png', x: 320, y: 680, w: 48, h: 48 },
-    { id: 'btn_stop', name: 'Stop', sprite: 'btn_stop_unpressed.png', x: 120, y: 748, w: 72, h: 44 },
-    { id: 'btn_eject', name: 'Eject Door', sprite: 'btn_eject_unpressed.png', x: 210, y: 748, w: 72, h: 44 }
+  "portrait": [
+    {
+      "id": "cassette_door",
+      "name": "Cassette Deck (Empty Base)",
+      "sprite": "deck_empty_base.png",
+      "multiplier": 1.5,
+      "x": 18,
+      "y": 50,
+      "w": 375,
+      "h": 216,
+      "isCassette": true
+    },
+    {
+      "id": "deck_door_open",
+      "name": "Open Deck Door (Tilted Cradle)",
+      "sprite": "deck_door_open_front.png",
+      "multiplier": 1.5,
+      "x": 0,
+      "y": 149,
+      "w": 423,
+      "h": 117
+    },
+    {
+      "id": "speaker_vents",
+      "name": "Speaker Vents",
+      "sprite": "chassis_speaker_vents.png",
+      "multiplier": 1.5,
+      "x": 50,
+      "y": 275,
+      "w": 315,
+      "h": 75
+    },
+    {
+      "id": "lcd_display",
+      "name": "LCD Display Frame",
+      "sprite": "chassis_lcd_frame.png",
+      "multiplier": 1.0,
+      "x": 10,
+      "y": 360,
+      "w": 392,
+      "h": 163,
+      "isLcd": true
+    },
+    {
+      "id": "switch_shuffle",
+      "name": "Shuffle Switch",
+      "sprite": "switch_shuffle_off.png",
+      "multiplier": 1.0,
+      "x": 50,
+      "y": 545,
+      "w": 60,
+      "h": 31
+    },
+    {
+      "id": "switch_repeat",
+      "name": "Repeat Switch",
+      "sprite": "switch_repeat_off.png",
+      "multiplier": 1.0,
+      "x": 290,
+      "y": 545,
+      "w": 60,
+      "h": 31
+    },
+    {
+      "id": "btn_skip_prev",
+      "name": "Prev Track",
+      "sprite": "btn_skip_prev_unpressed.png",
+      "multiplier": 0.6,
+      "x": 20,
+      "y": 600,
+      "w": 44,
+      "h": 48
+    },
+    {
+      "id": "btn_rewind",
+      "name": "Rewind",
+      "sprite": "btn_rewind_unpressed.png",
+      "multiplier": 0.6,
+      "x": 75,
+      "y": 600,
+      "w": 43,
+      "h": 48
+    },
+    {
+      "id": "btn_play",
+      "name": "Play",
+      "sprite": "btn_play_unpressed.png",
+      "multiplier": 0.6,
+      "x": 130,
+      "y": 600,
+      "w": 56,
+      "h": 49
+    },
+    {
+      "id": "btn_fast_fwd",
+      "name": "Fast Forward",
+      "sprite": "btn_fast_fwd_unpressed.png",
+      "multiplier": 0.6,
+      "x": 200,
+      "y": 600,
+      "w": 44,
+      "h": 48
+    },
+    {
+      "id": "btn_skip_next",
+      "name": "Next Track",
+      "sprite": "btn_skip_next_unpressed.png",
+      "multiplier": 0.6,
+      "x": 255,
+      "y": 600,
+      "w": 44,
+      "h": 48
+    },
+    {
+      "id": "btn_stop",
+      "name": "Stop",
+      "sprite": "btn_stop_unpressed.png",
+      "multiplier": 0.6,
+      "x": 310,
+      "y": 600,
+      "w": 42,
+      "h": 48
+    },
+    {
+      "id": "btn_eject",
+      "name": "Eject Button",
+      "sprite": "btn_eject_unpressed.png",
+      "multiplier": 0.7,
+      "x": 170,
+      "y": 670,
+      "w": 49,
+      "h": 56
+    }
   ],
-  landscape: [
-    { id: 'cassette_door', name: 'Cassette Door', sprite: 'chassis_tape_door_frame.png', x: 29, y: 75, w: 447, h: 258, isCassette: true },
-    { id: 'lcd_display', name: 'LCD Display', sprite: 'chassis_lcd_frame.png', x: 540, y: 45, w: 340, h: 170, isLcd: true },
-    { id: 'speaker_vents', name: 'Speaker Vents', sprite: 'chassis_speaker_vents.png', x: 540, y: 228, w: 340, h: 36 },
-    { id: 'switch_shuffle', name: 'Shuffle Switch', sprite: 'switch_shuffle_off.png', x: 540, y: 280, w: 60, h: 30 },
-    { id: 'switch_repeat', name: 'Repeat Switch', sprite: 'switch_repeat_off.png', x: 620, y: 280, w: 60, h: 30 },
-    { id: 'btn_skip_prev', name: 'Prev Track', sprite: 'btn_skip_prev_unpressed.png', x: 35, y: 345, w: 55, h: 42 },
-    { id: 'btn_rewind', name: 'Rewind', sprite: 'btn_rewind_unpressed.png', x: 98, y: 345, w: 55, h: 42 },
-    { id: 'btn_play', name: 'Play', sprite: 'btn_play_unpressed.png', x: 161, y: 345, w: 62, h: 42 },
-    { id: 'btn_pause', name: 'Pause', sprite: 'btn_pause_unpressed.png', x: 231, y: 345, w: 62, h: 42 },
-    { id: 'btn_fast_fwd', name: 'Fast Forward', sprite: 'btn_fast_fwd_unpressed.png', x: 301, y: 345, w: 55, h: 42 },
-    { id: 'btn_skip_next', name: 'Next Track', sprite: 'btn_skip_next_unpressed.png', x: 364, y: 345, w: 55, h: 42 },
-    { id: 'btn_stop', name: 'Stop', sprite: 'btn_stop_unpressed.png', x: 427, y: 345, w: 55, h: 42 },
-    { id: 'btn_eject', name: 'Eject Door', sprite: 'btn_eject_unpressed.png', x: 740, y: 335, w: 75, h: 46 }
+  "landscape": [
+    {
+      "id": "cassette_door",
+      "name": "Cassette Deck (Empty Base)",
+      "sprite": "deck_empty_base.png",
+      "multiplier": 1.8,
+      "x": 25,
+      "y": 60,
+      "w": 450,
+      "h": 259,
+      "isCassette": true
+    },
+    {
+      "id": "deck_door_open",
+      "name": "Open Deck Door (Tilted Cradle)",
+      "sprite": "deck_door_open_front.png",
+      "multiplier": 1.8,
+      "x": 0,
+      "y": 179,
+      "w": 508,
+      "h": 140
+    },
+    {
+      "id": "lcd_display",
+      "name": "LCD Display Frame",
+      "sprite": "chassis_lcd_frame.png",
+      "multiplier": 1.0,
+      "x": 500,
+      "y": 40,
+      "w": 392,
+      "h": 163,
+      "isLcd": true
+    },
+    {
+      "id": "speaker_vents",
+      "name": "Speaker Vents",
+      "sprite": "chassis_speaker_vents.png",
+      "multiplier": 1.5,
+      "x": 500,
+      "y": 215,
+      "w": 315,
+      "h": 75
+    },
+    {
+      "id": "switch_shuffle",
+      "name": "Shuffle Switch",
+      "sprite": "switch_shuffle_off.png",
+      "multiplier": 1.0,
+      "x": 510,
+      "y": 275,
+      "w": 60,
+      "h": 31
+    },
+    {
+      "id": "switch_repeat",
+      "name": "Repeat Switch",
+      "sprite": "switch_repeat_off.png",
+      "multiplier": 1.0,
+      "x": 590,
+      "y": 275,
+      "w": 60,
+      "h": 31
+    },
+    {
+      "id": "btn_skip_prev",
+      "name": "Prev Track",
+      "sprite": "btn_skip_prev_unpressed.png",
+      "multiplier": 0.65,
+      "x": 30,
+      "y": 335,
+      "w": 47,
+      "h": 52
+    },
+    {
+      "id": "btn_rewind",
+      "name": "Rewind",
+      "sprite": "btn_rewind_unpressed.png",
+      "multiplier": 0.65,
+      "x": 90,
+      "y": 335,
+      "w": 47,
+      "h": 52
+    },
+    {
+      "id": "btn_play",
+      "name": "Play",
+      "sprite": "btn_play_unpressed.png",
+      "multiplier": 0.65,
+      "x": 150,
+      "y": 335,
+      "w": 61,
+      "h": 53
+    },
+    {
+      "id": "btn_fast_fwd",
+      "name": "Fast Forward",
+      "sprite": "btn_fast_fwd_unpressed.png",
+      "multiplier": 0.65,
+      "x": 225,
+      "y": 335,
+      "w": 47,
+      "h": 52
+    },
+    {
+      "id": "btn_skip_next",
+      "name": "Next Track",
+      "sprite": "btn_skip_next_unpressed.png",
+      "multiplier": 0.65,
+      "x": 285,
+      "y": 335,
+      "w": 47,
+      "h": 52
+    },
+    {
+      "id": "btn_stop",
+      "name": "Stop",
+      "sprite": "btn_stop_unpressed.png",
+      "multiplier": 0.65,
+      "x": 345,
+      "y": 335,
+      "w": 46,
+      "h": 52
+    },
+    {
+      "id": "btn_eject",
+      "name": "Eject Button",
+      "sprite": "btn_eject_unpressed.png",
+      "multiplier": 0.75,
+      "x": 720,
+      "y": 325,
+      "w": 52,
+      "h": 60
+    }
   ]
 };
+
 
 // State
 let currentOrientation = 'landscape';
@@ -1155,6 +1510,25 @@ function switchOrientation(ori) {
 function setZoom(val) {
   zoomLevel = parseFloat(val);
   document.getElementById('device-container').style.transform = `scale(${zoomLevel})`;
+}
+
+
+let isClipBounds = true;
+function toggleClipBounds() {
+  isClipBounds = !isClipBounds;
+  const btn = document.getElementById('btn-toggle-clip');
+  if (btn) btn.classList.toggle('active', isClipBounds);
+  const screen = document.getElementById('device-screen');
+  const container = document.getElementById('device-container');
+  if (screen && container) {
+    if (isClipBounds) {
+      screen.style.overflow = 'hidden';
+      container.style.overflow = 'hidden';
+    } else {
+      screen.style.overflow = 'visible';
+      container.style.overflow = 'visible';
+    }
+  }
 }
 
 function toggleInsets() {
@@ -1369,8 +1743,8 @@ function onDragMouseMove(e) {
   currentList.forEach(el => {
     if (dragContext.origins[el.id]) {
       const orig = dragContext.origins[el.id];
-      el.x = Math.max(0, Math.min(vp.width - el.w, orig.x + dx));
-      el.y = Math.max(0, Math.min(vp.height - el.h, orig.y + dy));
+      el.x = Math.round(orig.x + dx);
+      el.y = Math.round(orig.y + dy);
 
       const node = document.getElementById('canvas-item-' + el.id);
       if (node) {
@@ -1505,21 +1879,26 @@ function onResizeMouseMove(e) {
   const dy = (e.clientY - resizeContext.startY) / zoomLevel;
   const h = resizeContext.handle;
 
-  if (h.includes('e')) {
-    el.w = Math.max(16, Math.round(resizeContext.origW + dx));
+    const baseDim = getSpriteBaseDim(el.sprite);
+  let newW = resizeContext.origW;
+  if (h.includes('e')) newW = resizeContext.origW + dx;
+  else if (h.includes('w')) newW = resizeContext.origW - dx;
+  
+  let newMult = Math.max(0.2, newW / baseDim.w);
+  // Snap to clean 0.25 steps if close
+  if (Math.abs(newMult - Math.round(newMult * 4) / 4) < 0.08) {
+    newMult = Math.round(newMult * 4) / 4;
   }
-  if (h.includes('s')) {
-    el.h = Math.max(16, Math.round(resizeContext.origH + dy));
-  }
+  
+  el.multiplier = newMult;
+  el.w = Math.round(baseDim.w * newMult);
+  el.h = Math.round(baseDim.h * newMult);
+
   if (h.includes('w')) {
-    const newW = Math.max(16, Math.round(resizeContext.origW - dx));
-    el.x = Math.round(resizeContext.origX + (resizeContext.origW - newW));
-    el.w = newW;
+    el.x = Math.round(resizeContext.origX + (resizeContext.origW - el.w));
   }
   if (h.includes('n')) {
-    const newH = Math.max(16, Math.round(resizeContext.origH - dy));
-    el.y = Math.round(resizeContext.origY + (resizeContext.origH - newH));
-    el.h = newH;
+    el.y = Math.round(resizeContext.origY + (resizeContext.origH - el.h));
   }
 
   const node = document.getElementById('canvas-item-' + el.id);
@@ -1758,8 +2137,8 @@ function nudge(dx, dy) {
   const vp = VIEWPORTS[currentOrientation];
 
   sel.forEach(el => {
-    el.x = Math.max(0, Math.min(vp.width - el.w, el.x + dx));
-    el.y = Math.max(0, Math.min(vp.height - el.h, el.y + dy));
+    el.x = Math.round(el.x + dx);
+    el.y = Math.round(el.y + dy);
   });
 
   autoSave();
@@ -1876,6 +2255,21 @@ function updateInspector() {
       document.getElementById('prop-y').value = el.y;
       document.getElementById('prop-w').value = el.w;
       document.getElementById('prop-h').value = el.h;
+      
+      const baseDim = getSpriteBaseDim(el.sprite);
+      const mult = el.multiplier || (baseDim.w > 0 ? (el.w / baseDim.w) : 1);
+      el.multiplier = mult;
+      
+      const resBadge = document.getElementById('prop-base-res');
+      if (resBadge) resBadge.textContent = `${baseDim.w} × ${baseDim.h} px (Original)`;
+      
+      const multInput = document.getElementById('prop-multiplier');
+      if (multInput) multInput.value = (Math.round(mult * 100) / 100);
+      
+      document.querySelectorAll('.multiplier-btn').forEach(btn => {
+        const btnM = parseFloat(btn.textContent.replace('x', ''));
+        btn.classList.toggle('active', Math.abs(btnM - mult) < 0.05);
+      });
 
       document.getElementById('prop-pct-x').textContent = (el.x / vp.width * 100).toFixed(1) + '%';
       document.getElementById('prop-pct-y').textContent = (el.y / vp.height * 100).toFixed(1) + '%';
@@ -1890,7 +2284,40 @@ function updateSelectedProp(prop, val) {
   const id = Array.from(selectedElementIds)[0];
   const el = elements[currentOrientation].find(item => item.id === id);
   if (!el) return;
-  el[prop] = Math.max(0, parseInt(val) || 0);
+  if (prop === 'x' || prop === 'y') {
+    el[prop] = parseInt(val) || 0;
+  } else {
+    el[prop] = Math.max(0, parseInt(val) || 0);
+  }
+  autoSave();
+  renderElements();
+}
+
+
+// --- Immutable Base Resolution & Multiplier Engine ---
+function getSpriteBaseDim(spriteName) {
+  if (window.ASSET_DIMENSIONS && window.ASSET_DIMENSIONS[spriteName]) {
+    return window.ASSET_DIMENSIONS[spriteName];
+  }
+  return { w: 100, h: 100 };
+}
+
+function setMultiplier(mult) {
+  updateSelectedMultiplier(mult);
+}
+
+function updateSelectedMultiplier(val) {
+  if (selectedElementIds.size !== 1) return;
+  const mult = Math.max(0.1, parseFloat(val) || 1);
+  const id = Array.from(selectedElementIds)[0];
+  const el = elements[currentOrientation].find(item => item.id === id);
+  if (!el) return;
+
+  el.multiplier = mult;
+  const base = getSpriteBaseDim(el.sprite);
+  el.w = Math.round(base.w * mult);
+  el.h = Math.round(base.h * mult);
+
   autoSave();
   renderElements();
 }
@@ -1900,12 +2327,101 @@ function updateSelectedSprite(sprite) {
   const id = Array.from(selectedElementIds)[0];
   const el = elements[currentOrientation].find(item => item.id === id);
   if (!el) return;
+
   el.sprite = sprite;
+  if (!el.multiplier) el.multiplier = 1;
+  const base = getSpriteBaseDim(sprite);
+  el.w = Math.round(base.w * el.multiplier);
+  el.h = Math.round(base.h * el.multiplier);
+
   autoSave();
   renderElements();
 }
 
-// --- Simulation Mode ---
+// --- Add Sprite Modal Logic ---
+function openAddSpriteModal() {
+  const modal = document.getElementById('add-sprite-modal');
+  modal.style.display = 'flex';
+  document.getElementById('sprite-search-input').value = '';
+  populateSpriteModalGrid('');
+  setTimeout(() => document.getElementById('sprite-search-input').focus(), 50);
+}
+
+function closeAddSpriteModal() {
+  document.getElementById('add-sprite-modal').style.display = 'none';
+}
+
+function filterSpriteModal(query) {
+  populateSpriteModalGrid(query);
+}
+
+function populateSpriteModalGrid(query) {
+  const grid = document.getElementById('sprite-modal-grid');
+  grid.innerHTML = '';
+  if (!window.ASSETS) return;
+
+  const q = query.toLowerCase().trim();
+  const keys = Object.keys(window.ASSETS).sort().filter(k => !q || k.toLowerCase().includes(q));
+
+  keys.forEach(k => {
+    const dim = getSpriteBaseDim(k);
+    const item = document.createElement('div');
+    item.className = 'sprite-grid-item';
+    item.onclick = () => addElementFromSprite(k);
+
+    const prevBox = document.createElement('div');
+    prevBox.className = 'sprite-preview-box';
+    const img = document.createElement('img');
+    img.src = window.ASSETS[k];
+    prevBox.appendChild(img);
+
+    const nameSpan = document.createElement('span');
+    nameSpan.style.fontSize = '11px';
+    nameSpan.style.textAlign = 'center';
+    nameSpan.style.wordBreak = 'break-all';
+    nameSpan.textContent = k.replace('.png', '');
+
+    const dimSpan = document.createElement('span');
+    dimSpan.className = 'badge-res';
+    dimSpan.textContent = `${dim.w} × ${dim.h}`;
+
+    item.appendChild(prevBox);
+    item.appendChild(nameSpan);
+    item.appendChild(dimSpan);
+    grid.appendChild(item);
+  });
+}
+
+function addElementFromSprite(sprite) {
+  closeAddSpriteModal();
+  const baseName = sprite.replace('.png', '').replace(/_/g, ' ');
+  const defaultName = baseName.charAt(0).toUpperCase() + baseName.slice(1);
+  const name = prompt('Element Name:', defaultName) || defaultName;
+  const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now().toString().slice(-4);
+
+  const base = getSpriteBaseDim(sprite);
+  const vp = VIEWPORTS[currentOrientation];
+
+  const newEl = {
+    id: id,
+    name: name,
+    sprite: sprite,
+    multiplier: 1,
+    x: Math.round(vp.width / 2 - base.w / 2),
+    y: Math.round(vp.height / 2 - base.h / 2),
+    w: base.w,
+    h: base.h
+  };
+
+  elements[currentOrientation].push(newEl);
+  autoSave();
+  selectSingleElement(newEl.id);
+}
+
+function addNewCustomElement() {
+  openAddSpriteModal();
+}
+
 function toggleSimulation() {
   isSimulating = !isSimulating;
   const btn = document.getElementById('btn-toggle-sim');
@@ -2018,5 +2534,24 @@ function copyModalJson() {
 // Start
 window.onload = init;
 </script>
+
+<!-- Add Sprite Modal -->
+<div id="add-sprite-modal" class="add-sprite-modal" onclick="if(event.target===this)closeAddSpriteModal()">
+  <div class="add-sprite-card">
+    <div style="padding: 12px 16px; border-bottom: 1px solid var(--panel-border); display: flex; justify-content: space-between; align-items: center;">
+      <span style="font-weight: 700; font-size: 14px;">Select Asset from Library (Immutable Original Resolutions)</span>
+      <button onclick="closeAddSpriteModal()" style="padding: 2px 8px;">✕</button>
+    </div>
+    <div style="padding: 8px 12px; border-bottom: 1px solid var(--panel-border);">
+      <input type="text" id="sprite-search-input" placeholder="Search 49 assets (e.g. deck, button, reel, door)..." 
+             style="width: 100%; background: #12131a; border: 1px solid var(--panel-border); border-radius: 4px; padding: 6px 10px; color: #fff; font-size: 12px;"
+             oninput="filterSpriteModal(this.value)">
+    </div>
+    <div class="sprite-grid" id="sprite-modal-grid">
+      <!-- Generated dynamically -->
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

@@ -433,175 +433,14 @@ object SpotifyManager {
                 android.util.Log.w("SpotifySync", "Liked tracks warning: ${e.message}")
             }
 
-            // 3. Fetch Saved Albums -> Artist Shelf Tapes with Pixelated Cover Art
-            val albumUris = mutableMapOf<String, String>()
-            try {
-                onProgress("FETCHING SAVED ALBUMS & PIXELATING ART...")
-                val albumsJson = getJson("https://api.spotify.com/v1/me/albums?limit=12", token)
-                val items = albumsJson.optJSONArray("items") ?: JSONArray()
-                android.util.Log.d("SpotifySync", "Found ${items.length()} saved albums")
-                for (i in 0 until items.length()) {
-                    val item = items.optJSONObject(i) ?: continue
-                    val albumObj = item.optJSONObject("album") ?: continue
-                    val albumName = albumObj.optString("name", "Unknown Album")
-                    val artistsArr = albumObj.optJSONArray("artists")
-                    val artistName = artistsArr?.optJSONObject(0)?.optString("name") ?: "Spotify Artist"
-                    val albUri = albumObj.optString("uri", "")
-                    if (albUri.isNotBlank()) {
-                        albumUris["${artistName}_$albumName"] = albUri
-                    }
-
-                    val imagesArr = albumObj.optJSONArray("images")
-                    val imageUrl = if (imagesArr != null && imagesArr.length() > 0) {
-                        imagesArr.optJSONObject(imagesArr.length() - 1)?.optString("url")
-                            ?: imagesArr.optJSONObject(0)?.optString("url")
-                    } else null
-
-                    val artKey = "${artistName}_$albumName"
-                    if (!albumArtworkCache.containsKey(artKey) && !imageUrl.isNullOrBlank()) {
-                        albumArtworkCache[artKey] = downloadAndPixelateArtwork(imageUrl)
-                    }
-
-                    val tracksObj = albumObj.optJSONObject("tracks")
-                    val trackItems = tracksObj?.optJSONArray("items") ?: JSONArray()
-                    for (t in 0 until trackItems.length()) {
-                        val tr = trackItems.optJSONObject(t) ?: continue
-                        val trId = tr.optString("id").hashCode().toLong()
-                        val trTitle = tr.optString("name", "Track")
-                        val trDur = tr.optLong("duration_ms", 180000L)
-                        val trUri = tr.optString("uri", "")
-                        val contentUri = Uri.parse(trUri.ifBlank { "spotify:track:$t" })
-
-                        allSpotifyTracks.add(
-                            Track(
-                                id = trId,
-                                title = trTitle,
-                                artist = artistName,
-                                album = albumName,
-                                durationMs = trDur,
-                                contentUri = contentUri,
-                                spotifyUri = trUri
-                            )
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("SpotifySync", "Albums fetch warning: ${e.message}")
-            }
-
-            // 4. Fallback: Top Tracks if still empty
-            if (allSpotifyTracks.isEmpty()) {
-                try {
-                    onProgress("FETCHING TOP TRACKS...")
-                    val topJson = getJson("https://api.spotify.com/v1/me/top/tracks?limit=25", token)
-                    val items = topJson.optJSONArray("items") ?: JSONArray()
-                    android.util.Log.d("SpotifySync", "Found ${items.length()} top tracks")
-                    for (i in 0 until items.length()) {
-                        val tr = items.optJSONObject(i) ?: continue
-                        val trId = tr.optString("id").hashCode().toLong()
-                        val trTitle = tr.optString("name", "Track")
-                        val trDur = tr.optLong("duration_ms", 180000L)
-                        val trUri = tr.optString("uri", "")
-
-                        val albumObj = tr.optJSONObject("album")
-                        val albumName = albumObj?.optString("name", "Top Tracks") ?: "Top Tracks"
-                        val artistsArr = tr.optJSONArray("artists")
-                        val artistName = artistsArr?.optJSONObject(0)?.optString("name") ?: "Spotify Artist"
-
-                        val imagesArr = albumObj?.optJSONArray("images")
-                        val imageUrl = if (imagesArr != null && imagesArr.length() > 0) {
-                            imagesArr.optJSONObject(imagesArr.length() - 1)?.optString("url")
-                        } else null
-
-                        val artKey = "${artistName}_$albumName"
-                        if (!albumArtworkCache.containsKey(artKey) && !imageUrl.isNullOrBlank() && albumArtworkCache.size < 20) {
-                            albumArtworkCache[artKey] = downloadAndPixelateArtwork(imageUrl)
-                        }
-
-                        val contentUri = Uri.parse(trUri.ifBlank { "spotify:track:$i" })
-
-                        allSpotifyTracks.add(
-                            Track(
-                                id = trId,
-                                title = trTitle,
-                                artist = artistName,
-                                album = albumName,
-                                durationMs = trDur,
-                                contentUri = contentUri,
-                                spotifyUri = trUri
-                            )
-                        )
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.w("SpotifySync", "Top tracks warning: ${e.message}")
-                }
-            }
-
-            // Also include any real tracks found inside user playlists on the Artist Shelf
-            if (allSpotifyTracks.isEmpty()) {
-                playlistTapes.forEach { plTape ->
-                    plTape.tracks.filter { it.artist != "Spotify Playlist" }.forEach {
-                        allSpotifyTracks.add(it)
-                    }
-                }
-            }
-
-            // Group Spotify tracks into Artist Shelf Tapes
-            val artistTapes = mutableMapOf<String, List<TapeItem>>()
-            val tracksByArtist = allSpotifyTracks.distinctBy { "${it.artist}_${it.title}" }.groupBy { it.artist }
-
-            tracksByArtist.forEach { (artist, artistTracks) ->
-                val list = mutableListOf<TapeItem>()
-                val hash = kotlin.math.abs(artist.hashCode())
-                val firstArt = artistTracks.firstNotNullOfOrNull { albumArtworkCache["${it.artist}_${it.album}"] }
-
-                list.add(
-                    TapeItem(
-                        id = "spotify_artist_all_$artist",
-                        title = "$artist - SPOTIFY ALL",
-                        subtitle = "🟢 SPOTIFY • ${artistTracks.size} Tracks",
-                        type = TapeType.ARTIST_ALL,
-                        tracks = artistTracks,
-                        spineColorHex = spinePalette[hash % spinePalette.size],
-                        labelColorHex = labelPalette[hash % labelPalette.size],
-                        isHomeMade = false,
-                        artworkBitmap = firstArt,
-                        isSpotify = true
-                    )
-                )
-
-                artistTracks.groupBy { it.album }.forEach { (album, albumTracks) ->
-                    val albHash = kotlin.math.abs((artist + album).hashCode())
-                    val art = albumArtworkCache["${artist}_$album"] ?: firstArt
-                    val albUri = albumUris["${artist}_$album"]
-                    list.add(
-                        TapeItem(
-                            id = "spotify_album_${artist}_$album",
-                            title = album,
-                            subtitle = "🟢 $artist (${albumTracks.size} Tracks)",
-                            type = TapeType.ALBUM,
-                            tracks = albumTracks,
-                            spineColorHex = spinePalette[albHash % spinePalette.size],
-                            labelColorHex = labelPalette[albHash % labelPalette.size],
-                            isHomeMade = false,
-                            artworkBitmap = art,
-                            isSpotify = true,
-                            spotifyContextUri = albUri
-                        )
-                    )
-                }
-
-                artistTapes[artist] = list
-            }
-
             val syncResult = SpotifySyncResult(
                 userName = userName,
-                artistTapes = artistTapes,
+                artistTapes = emptyMap(),
                 playlistTapes = playlistTapes,
-                statusMessage = "SYNCED ${playlistTapes.size} MIXTAPES & ${artistTapes.size} ARTISTS"
+                statusMessage = "SYNCED ${playlistTapes.size} SPOTIFY PLAYLIST TAPES"
             )
             saveLibraryToCache(context, syncResult)
-            android.util.Log.d("SpotifySync", "Sync complete & cached: ${playlistTapes.size} mixtapes, ${artistTapes.size} artists")
+            android.util.Log.d("SpotifySync", "Sync complete & cached: ${playlistTapes.size} playlists")
             Result.success(syncResult)
         } catch (e: Exception) {
             android.util.Log.e("SpotifySync", "Sync failed", e)
@@ -714,6 +553,8 @@ object SpotifyManager {
             tObj.put("durationMs", tr.durationMs)
             tObj.put("contentUri", tr.contentUri.toString())
             if (tr.spotifyUri != null) tObj.put("spotifyUri", tr.spotifyUri)
+            if (tr.artistUri != null) tObj.put("artistUri", tr.artistUri)
+            if (tr.albumUri != null) tObj.put("albumUri", tr.albumUri)
             tracksArr.put(tObj)
         }
         obj.put("tracks", tracksArr)
@@ -727,6 +568,8 @@ object SpotifyManager {
         for (i in 0 until tracksArr.length()) {
             val tObj = tracksArr.optJSONObject(i) ?: continue
             val spUri = tObj.optString("spotifyUri", "").ifBlank { null }
+            val artUri = tObj.optString("artistUri", "").ifBlank { null }
+            val albUri = tObj.optString("albumUri", "").ifBlank { null }
             val rawTitle = tObj.optString("title", "Track").trim()
             val rawArtist = tObj.optString("artist", "Artist").trim()
 
@@ -749,7 +592,9 @@ object SpotifyManager {
                     album = tObj.optString("album", "Album"),
                     durationMs = tObj.optLong("durationMs", 180000L),
                     contentUri = Uri.parse(spUri ?: tObj.optString("contentUri", "spotify:track:$i")),
-                    spotifyUri = spUri
+                    spotifyUri = spUri,
+                    artistUri = artUri,
+                    albumUri = albUri
                 )
             )
         }
@@ -805,8 +650,12 @@ object SpotifyManager {
                 val trDur = tr.optLong("duration_ms", 180000L)
                 val trUri = tr.optString("uri", "")
                 val artistsArr = tr.optJSONArray("artists")
-                val artistName = artistsArr?.optJSONObject(0)?.optString("name") ?: "Spotify Artist"
-                val albumName = tr.optJSONObject("album")?.optString("name") ?: playlistName
+                val firstArtObj = artistsArr?.optJSONObject(0)
+                val artistName = firstArtObj?.optString("name") ?: "Spotify Artist"
+                val artistUri = firstArtObj?.optString("uri")?.ifBlank { null }
+                val albumObj = tr.optJSONObject("album")
+                val albumName = albumObj?.optString("name") ?: playlistName
+                val albumUri = albumObj?.optString("uri")?.ifBlank { null }
 
                 val contentUri = Uri.parse(trUri.ifBlank { "spotify:track:$i" })
 
@@ -818,7 +667,9 @@ object SpotifyManager {
                         album = albumName,
                         durationMs = trDur,
                         contentUri = contentUri,
-                        spotifyUri = trUri
+                        spotifyUri = trUri,
+                        artistUri = artistUri,
+                        albumUri = albumUri
                     )
                 )
             }
@@ -827,12 +678,14 @@ object SpotifyManager {
         return result
     }
 
+
+
     /**
      * Fetches the trackList from Spotify's public embed state JSON for a playlist or album.
      * Note: We intentionally keep contentUri as "spotify:track:..." so playTrack() resolves
      * the FULL-LENGTH song stream instead of playing the 30-second audioPreview clip!
      */
-    private fun fetchEmbedTracks(entityType: String, entityId: String, defaultAlbumName: String): List<Track> {
+    fun fetchEmbedTracks(entityType: String, entityId: String, defaultAlbumName: String): List<Track> {
         val result = mutableListOf<Track>()
         try {
             val html = getRawString("https://open.spotify.com/embed/$entityType/$entityId")
@@ -915,317 +768,6 @@ object SpotifyManager {
     }
 
     // =========================================================================
-    // SPOTIFY CONNECT PLAYBACK CONTROLS
-    // =========================================================================
-
-    suspend fun getAvailableDevices(context: Context): List<SpotifyDevice> = withContext(Dispatchers.IO) {
-        val token = getValidAccessToken(context) ?: return@withContext emptyList()
-        try {
-            val json = getJson("https://api.spotify.com/v1/me/player/devices", token)
-            val arr = json.optJSONArray("devices") ?: return@withContext emptyList()
-            val list = mutableListOf<SpotifyDevice>()
-            for (i in 0 until arr.length()) {
-                val d = arr.optJSONObject(i) ?: continue
-                val id = d.optString("id", "")
-                if (id.isNotBlank()) {
-                    list.add(
-                        SpotifyDevice(
-                            id = id,
-                            name = d.optString("name", "Device"),
-                            type = d.optString("type", ""),
-                            isActive = d.optBoolean("is_active", false)
-                        )
-                    )
-                }
-            }
-            list
-        } catch (e: Exception) {
-            android.util.Log.w("SpotifyDevices", "Could not fetch devices: ${e.message}")
-            emptyList()
-        }
-    }
-
-    suspend fun getPlaybackState(context: Context): SpotifyPlaybackState? = withContext(Dispatchers.IO) {
-        val token = getValidAccessToken(context) ?: return@withContext null
-        try {
-            val conn = (URL("https://api.spotify.com/v1/me/player").openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("Authorization", "Bearer $token")
-                connectTimeout = 4000
-                readTimeout = 4000
-            }
-            val status = conn.responseCode
-            if (status == 204 || status !in 200..299) {
-                conn.disconnect()
-                return@withContext null
-            }
-            val text = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
-            conn.disconnect()
-            if (text.isBlank()) return@withContext null
-
-            val obj = JSONObject(text)
-            val isPlaying = obj.optBoolean("is_playing", false)
-            val progressMs = obj.optLong("progress_ms", 0L)
-            val item = obj.optJSONObject("item")
-            val durationMs = item?.optLong("duration_ms", 0L) ?: 0L
-            val uri = item?.optString("uri", "")?.ifBlank { null }
-
-            SpotifyPlaybackState(
-                isPlaying = isPlaying,
-                progressMs = progressMs,
-                durationMs = durationMs,
-                trackUri = uri
-            )
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    /**
-     * Locates strictly this local Android device (Smartphone or Tablet) from the Spotify Connect
-     * devices list. NEVER matches smart speakers, speaker groups, Echoes, Google Homes, TVs, or
-     * other remote household devices.
-     */
-    fun findLocalDevice(context: Context, devices: List<SpotifyDevice>): SpotifyDevice? {
-        if (devices.isEmpty()) return null
-
-        val model = android.os.Build.MODEL.trim()
-        val deviceName = android.os.Build.DEVICE.trim()
-        val product = android.os.Build.PRODUCT.trim()
-
-        val sysName = try {
-            android.provider.Settings.Global.getString(context.contentResolver, "device_name")
-                ?: android.provider.Settings.System.getString(context.contentResolver, "bluetooth_name")
-                ?: ""
-        } catch (_: Exception) { "" }.trim()
-
-        // Strictly reject any device type that is not a phone or tablet,
-        // and reject any device with speaker/group keywords in its name.
-        val validLocalDevices = devices.filter { d ->
-            val isPhoneOrTablet = d.type.equals("Smartphone", ignoreCase = true) ||
-                                  d.type.equals("Tablet", ignoreCase = true)
-            val nameLower = d.name.lowercase()
-            val isNotSpeakerOrGroup = !nameLower.contains("group") &&
-                                      !nameLower.contains("everywhere") &&
-                                      !nameLower.contains("all devices") &&
-                                      !nameLower.contains("speaker") &&
-                                      !nameLower.contains("echo") &&
-                                      !nameLower.contains("nest") &&
-                                      !nameLower.contains("google home") &&
-                                      !nameLower.contains("sonos") &&
-                                      !nameLower.contains("tv") &&
-                                      !nameLower.contains("cast") &&
-                                      !nameLower.contains("audio") &&
-                                      !nameLower.contains("alexa")
-
-            isPhoneOrTablet && isNotSpeakerOrGroup
-        }
-
-        if (validLocalDevices.isEmpty()) {
-            android.util.Log.d("SpotifyDevice", "No local phone/tablet found among ${devices.size} Connect devices (rejected remote speakers).")
-            return null
-        }
-
-        // 1. Highest priority: Name match with system device name or Android model (e.g. "Pixel 8")
-        val nameMatch = validLocalDevices.firstOrNull { d ->
-            val dNameLower = d.name.lowercase()
-            (sysName.isNotBlank() && dNameLower == sysName.lowercase()) ||
-            (model.isNotBlank() && (dNameLower.contains(model.lowercase()) || model.lowercase().contains(dNameLower))) ||
-            (deviceName.isNotBlank() && dNameLower.contains(deviceName.lowercase())) ||
-            (product.isNotBlank() && dNameLower.contains(product.lowercase()))
-        }
-        if (nameMatch != null) return nameMatch
-
-        // 2. Active Smartphone
-        val activePhone = validLocalDevices.firstOrNull { it.isActive && it.type.equals("Smartphone", ignoreCase = true) }
-        if (activePhone != null) return activePhone
-
-        // 3. Any Smartphone in the list
-        val anyPhone = validLocalDevices.firstOrNull { it.type.equals("Smartphone", ignoreCase = true) }
-        if (anyPhone != null) return anyPhone
-
-        // 4. Any Tablet in the list
-        return validLocalDevices.firstOrNull()
-    }
-
-    /**
-     * Triggers playback of a Spotify track via Spotify Connect Web API.
-     * EXCLUSIVELY targets this phone (device_id). NEVER sends untargeted play commands
-     * to prevent audio blasting to household smart speakers or "All Devices" groups.
-     */
-    suspend fun playSpotifyTrack(
-        context: Context,
-        spotifyUri: String,
-        contextUri: String? = null,
-        trackIndex: Int? = null,
-        allTrackUris: List<String>? = null
-    ): Boolean = withContext(Dispatchers.IO) {
-        val token = getValidAccessToken(context) ?: return@withContext false
-        try {
-            val body = JSONObject().apply {
-                if (!contextUri.isNullOrBlank()) {
-                    put("context_uri", contextUri)
-                    if (trackIndex != null && trackIndex >= 0) {
-                        put("offset", JSONObject().put("position", trackIndex))
-                    } else if (spotifyUri.startsWith("spotify:track:")) {
-                        put("offset", JSONObject().put("uri", spotifyUri))
-                    }
-                } else if (!allTrackUris.isNullOrEmpty()) {
-                    val arr = JSONArray()
-                    allTrackUris.take(100).forEach { arr.put(it) }
-                    put("uris", arr)
-                    val pos = trackIndex ?: allTrackUris.indexOf(spotifyUri).takeIf { it >= 0 } ?: 0
-                    put("offset", JSONObject().put("position", pos))
-                } else if (spotifyUri.startsWith("spotify:track:")) {
-                    put("uris", JSONArray().put(spotifyUri))
-                } else {
-                    put("context_uri", spotifyUri)
-                }
-            }.toString()
-
-            // Find strictly THIS local phone among available Spotify Connect devices
-            var devices = getAvailableDevices(context)
-            var localPhone = findLocalDevice(context, devices)
-
-            // If phone is not active in Spotify Connect, it may just have been woken up;
-            // poll for device registration
-            if (localPhone == null) {
-                for (retry in 1..2) {
-                    kotlinx.coroutines.delay(600L)
-                    devices = getAvailableDevices(context)
-                    localPhone = findLocalDevice(context, devices)
-                    if (localPhone != null) break
-                }
-            }
-
-            if (localPhone != null) {
-                // EXCLUSIVELY target this phone device! NEVER send untargeted /play request!
-                val code = sendPlayerRequest(
-                    "PUT",
-                    "https://api.spotify.com/v1/me/player/play?device_id=${localPhone.id}",
-                    token,
-                    body
-                )
-                if (code in 200..299) {
-                    return@withContext true
-                }
-            } else {
-                android.util.Log.d("SpotifyPlay", "Phone not yet online in Spotify Connect; skipping Web API to protect household speakers.")
-            }
-
-            false
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    suspend fun pauseSpotify(context: Context): Boolean = withContext(Dispatchers.IO) {
-        val token = getValidAccessToken(context) ?: return@withContext false
-        try {
-            val code = sendPlayerRequest("PUT", "https://api.spotify.com/v1/me/player/pause", token, null)
-            code in 200..299
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    suspend fun resumeSpotify(context: Context): Boolean = withContext(Dispatchers.IO) {
-        val token = getValidAccessToken(context) ?: return@withContext false
-        try {
-            var devices = getAvailableDevices(context)
-            var localPhone = findLocalDevice(context, devices)
-
-            if (localPhone == null) {
-                for (retry in 1..2) {
-                    kotlinx.coroutines.delay(600L)
-                    devices = getAvailableDevices(context)
-                    localPhone = findLocalDevice(context, devices)
-                    if (localPhone != null) break
-                }
-            }
-
-            if (localPhone != null) {
-                val code = sendPlayerRequest(
-                    "PUT",
-                    "https://api.spotify.com/v1/me/player/play?device_id=${localPhone.id}",
-                    token,
-                    null
-                )
-                return@withContext (code in 200..299)
-            }
-            false
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    suspend fun skipSpotifyNext(context: Context): Boolean = withContext(Dispatchers.IO) {
-        val token = getValidAccessToken(context) ?: return@withContext false
-        try {
-            val code = sendPlayerRequest("POST", "https://api.spotify.com/v1/me/player/next", token, null)
-            code in 200..299
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    suspend fun skipSpotifyPrev(context: Context): Boolean = withContext(Dispatchers.IO) {
-        val token = getValidAccessToken(context) ?: return@withContext false
-        try {
-            val code = sendPlayerRequest("POST", "https://api.spotify.com/v1/me/player/previous", token, null)
-            code in 200..299
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    suspend fun seekSpotify(context: Context, positionMs: Long): Boolean = withContext(Dispatchers.IO) {
-        val token = getValidAccessToken(context) ?: return@withContext false
-        try {
-            val code = sendPlayerRequest(
-                "PUT",
-                "https://api.spotify.com/v1/me/player/seek?position_ms=$positionMs",
-                token,
-                null
-            )
-            code in 200..299
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    suspend fun setSpotifyShuffle(context: Context, enabled: Boolean): Boolean = withContext(Dispatchers.IO) {
-        val token = getValidAccessToken(context) ?: return@withContext false
-        try {
-            val code = sendPlayerRequest(
-                "PUT",
-                "https://api.spotify.com/v1/me/player/shuffle?state=$enabled",
-                token,
-                null
-            )
-            code in 200..299
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    suspend fun setSpotifyRepeat(context: Context, enabled: Boolean): Boolean = withContext(Dispatchers.IO) {
-        val token = getValidAccessToken(context) ?: return@withContext false
-        try {
-            val mode = if (enabled) "context" else "off"
-            val code = sendPlayerRequest(
-                "PUT",
-                "https://api.spotify.com/v1/me/player/repeat?state=$mode",
-                token,
-                null
-            )
-            code in 200..299
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    // =========================================================================
     // PKCE & HTTP HELPERS
     // =========================================================================
 
@@ -1289,26 +831,5 @@ object SpotifyManager {
             throw Exception("HTTP $status: $text")
         }
         return JSONObject(text)
-    }
-
-    private fun sendPlayerRequest(method: String, urlStr: String, accessToken: String, jsonBody: String?): Int {
-        val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            setRequestProperty("Authorization", "Bearer $accessToken")
-            if (jsonBody != null) {
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-            }
-            connectTimeout = 5000
-            readTimeout = 5000
-        }
-
-        if (jsonBody != null) {
-            OutputStreamWriter(conn.outputStream).use { it.write(jsonBody) }
-        }
-
-        val code = conn.responseCode
-        conn.disconnect()
-        return code
     }
 }

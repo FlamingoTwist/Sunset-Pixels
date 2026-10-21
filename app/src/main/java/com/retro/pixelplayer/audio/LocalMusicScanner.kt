@@ -17,7 +17,9 @@ data class Track(
     val durationMs: Long,
     val contentUri: Uri,
     val albumId: Long = 0L,
-    val spotifyUri: String? = null
+    val spotifyUri: String? = null,
+    val artistUri: String? = null,
+    val albumUri: String? = null
 )
 
 enum class TapeType {

@@ -1,5 +1,6 @@
 package com.retro.pixelplayer.ui.components
 
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,15 +23,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.layout.ContentScale
-
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -41,8 +44,9 @@ import kotlinx.coroutines.delay
 
 /**
  * Authentic Cassette Tape Deck using pixel-art sliced assets:
- * - deck_cassette_base: Full door frame, glass reflection, warm top lamp & cassette
- * - deck_empty_base: Open cassette well with drive spindles & head mechanism when ejected
+ * - Closed Deck: deck_cassette_base, deck_empty_base, deck_cassette_front
+ * - Open Deck (ejecting, empty, or inserting): deck_open_base_back (deep cavity) and
+ *   deck_door_open_front (tilted forward open cassette cradle tray from master aseprite)
  * - Stepped mechanical eject/insert animations (8 discrete 16-bit frames)
  */
 @Composable
@@ -59,14 +63,21 @@ fun CassetteDeck(
     shellResId: Int = R.drawable.deck_cassette_shell,
     isInserting: Boolean = false,
     isEjecting: Boolean = false,
+    openDoorWidth: androidx.compose.ui.unit.Dp? = null,
+    openDoorHeight: androidx.compose.ui.unit.Dp? = null,
+    openDoorOffsetX: androidx.compose.ui.unit.Dp? = null,
+    openDoorOffsetY: androidx.compose.ui.unit.Dp? = null,
     onEjectAnimationFinished: (() -> Unit)? = null,
     onInsertAnimationFinished: (() -> Unit)? = null,
     onEjectOrInsert: () -> Unit
 ) {
+    val currentOnInsertFinished = rememberUpdatedState(onInsertAnimationFinished)
+    val currentOnEjectFinished = rememberUpdatedState(onEjectAnimationFinished)
+
     // Stepped alternating cog rotation (out of phase between L and R)
     var stepCount by remember { mutableStateOf(0) }
     LaunchedEffect(isPlaying, isTapeInserted) {
-        if (isPlaying && isTapeInserted && !isEjecting && !isInserting) {
+        if (isPlaying && isTapeInserted) {
             while (true) {
                 delay(150L) // Mechanical discrete step every 150ms
                 stepCount = (stepCount + 1) % 4
@@ -97,7 +108,7 @@ fun CassetteDeck(
             }
 
             doorOffsetY = 0.dp // Door latches back up
-            onInsertAnimationFinished?.invoke()
+            currentOnInsertFinished.value?.invoke()
         }
     }
 
@@ -117,7 +128,7 @@ fun CassetteDeck(
             }
 
             doorOffsetY = 0.dp
-            onEjectAnimationFinished?.invoke()
+            currentOnEjectFinished.value?.invoke()
         }
     }
 
@@ -131,10 +142,13 @@ fun CassetteDeck(
         val deckWidth = maxWidth
         val deckHeight = maxHeight
 
-        // 0. Base Layer: Empty Deck Bay (always rendered underneath so it shows during eject/insert)
+        val isOpenDeck = !isTapeInserted || isInserting || isEjecting
+        val baseRes = if (isOpenDeck) R.drawable.deck_open_base_back else R.drawable.deck_empty_base
+
+        // 0. Base Layer: Deep Cavity when open / Spindles & Head Bay when closed
         Image(
-            painter = pixelPainterResource(id = R.drawable.deck_empty_base),
-            contentDescription = "Empty Deck Bay",
+            painter = pixelPainterResource(id = baseRes),
+            contentDescription = "Deck Cavity",
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.FillBounds
         )
@@ -282,7 +296,6 @@ fun CassetteDeck(
                                     modifier = Modifier
                                         .size(13.dp)
                                         .border(1.dp, Color(0xFF4A3E38))
-
                                 )
                             }
                             Text(
@@ -303,13 +316,13 @@ fun CassetteDeck(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = 12.dp),
+                    .padding(bottom = 36.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
                     text = "[ NO CASSETTE INSERTED ]",
-                    color = Color.White.copy(alpha = 0.75f),
+                    color = Color.White.copy(alpha = 0.85f),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
@@ -325,15 +338,17 @@ fun CassetteDeck(
             }
         }
 
-        // CASSETTE SURROUND DOOR (Shifts down by doorOffsetY when unlatched/open)
-        Image(
-            painter = pixelPainterResource(id = R.drawable.deck_cassette_front),
-            contentDescription = "Cassette Front Door",
-            modifier = Modifier
-                .fillMaxSize()
-                .offset(y = doorOffsetY),
-            contentScale = ContentScale.FillBounds
-        )
+        // Closed Cassette Door (visible only when deck is closed)
+        if (!isOpenDeck) {
+            Image(
+                painter = pixelPainterResource(id = R.drawable.deck_cassette_front),
+                contentDescription = "Cassette Front Door",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .offset(y = doorOffsetY),
+                contentScale = ContentScale.FillBounds
+            )
+        }
     }
 }
 
