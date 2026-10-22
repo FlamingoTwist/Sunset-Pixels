@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -1140,28 +1141,32 @@ fun DeckScreen(
             contentScale = ContentScale.FillBounds
         )
 
-        // FOREGROUND CONTENT LAYER: windowInsetsPadding avoids Android navigation buttons / camera cutouts
+        // FOREGROUND CONTENT LAYER: Exact 1:1 match with Android Studio Visual Layout Editor
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
+            modifier = Modifier.fillMaxSize()
         ) {
-            val cw = maxWidth
-            val ch = maxHeight
             val context = LocalContext.current
             val skin = remember { SkinManager.loadSkin(context) }
             val vp = if (isLandscape) skin.landscape else skin.portrait
+            val scaleX = if (vp.canvasWidth > 0f) maxWidth.value / vp.canvasWidth else 1f
+            val scaleY = if (vp.canvasHeight > 0f) maxHeight.value / vp.canvasHeight else 1f
 
-            // 1. Overlay Header Bar: floats at top within safe drawing insets, without consuming layout height
+            fun com.retro.pixelplayer.skin.SkinElement.dpX() = (this.x * scaleX).dp
+            fun com.retro.pixelplayer.skin.SkinElement.dpY() = (this.y * scaleY).dp
+            fun com.retro.pixelplayer.skin.SkinElement.dpW() = (this.width * scaleX).dp
+            fun com.retro.pixelplayer.skin.SkinElement.dpH() = (this.height * scaleY).dp
+
+            // 1. Overlay Header Bar: floats at top within status bar insets, without consuming layout height
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
                     .padding(horizontal = 14.dp, vertical = if (isLandscape) 4.dp else 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isLandscape) "◆ SUNSET SOUNDWAVES ◆" else "◆ SUNSET ◆",
+                    text = "◆ SUNSET CASSETTE ◆",
                     color = PixelPalette.ChassisHighlight,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Black,
@@ -1219,408 +1224,184 @@ fun DeckScreen(
                 }
             }
 
-            if (isLandscape) {
-                // HORIZONTAL (Landscape) Layout - Matches Skin Designer 1:1
-                // 1. Cassette Door
-                val isOpenDeckLand = !isTapeInserted || isInserting || isEjecting
-                val baseDoorEl = vp.getElement("cassette_bay") ?: vp.getElement("cassette_door")
-                val activeDoorEl = if (isOpenDeckLand) (vp.getElement("cassette_bay_open") ?: baseDoorEl) else baseDoorEl
-                val openDoorEl = vp.getElement("deck_door_open")
-                val deckW = cw * (activeDoorEl?.relWidth ?: 0.4918f)
-                val deckX = cw * (activeDoorEl?.relX ?: 0.0317f)
-                val deckY = ch * (activeDoorEl?.relY ?: 0.1505f)
-
-                CassetteDeck(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = deckX, y = deckY)
-                        .width(deckW),
-                    isTapeInserted = isTapeInserted,
-                    shellResId = tapeShellResId,
-                    isPlaying = isPlaying,
-                    tapeTitle = tapeTitle,
-                    tapeSubtitle = tapeSubtitle,
-                    labelColor = tapeLabelColor,
-                    shellColor = tapeShellColor,
-                    isHomeMade = currentTape?.isHomeMade ?: false,
-                    artworkBitmap = currentTape?.artworkBitmap,
-                    isInserting = isInserting,
-                    isEjecting = isEjecting,
-                    onEjectAnimationFinished = onEjectAnimationFinished,
-                    onInsertAnimationFinished = onInsertAnimationFinished,
-                    onEjectOrInsert = { onTapeDeckTapped() }
-                )
-
-                // Open Cassette Door (visible only when deck is open, locks 1:1 with cassette bay coordinates)
-                if (isOpenDeckLand && openDoorEl != null) {
-                    val bayRef = activeDoorEl ?: baseDoorEl
-                    val bayH = deckW * (144f / 250f)
-                    val (doorX, doorY, doorW, doorH) = if (bayRef != null && bayRef.width > 0f && bayRef.height > 0f) {
-                        val dX = deckX + deckW * ((openDoorEl.x - bayRef.x) / bayRef.width)
-                        val dY = deckY + bayH * ((openDoorEl.y - bayRef.y) / bayRef.height)
-                        val dW = deckW * (openDoorEl.width / bayRef.width)
-                        val dH = bayH * (openDoorEl.height / bayRef.height)
-                        listOf(dX, dY, dW, dH)
-                    } else {
-                        listOf(cw * openDoorEl.relX, ch * openDoorEl.relY, cw * openDoorEl.relWidth, ch * openDoorEl.relHeight)
-                    }
-
-                    Image(
-                        painter = pixelPainterResource(id = R.drawable.deck_door_open_front),
-                        contentDescription = "Open Cassette Door",
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .offset(x = doorX, y = doorY)
-                            .size(width = doorW, height = doorH)
-                            .clickable { onTapeDeckTapped() },
-                        contentScale = ContentScale.FillBounds
-                    )
-                }
-
-                // 2. Speaker Vents (Two grilles under cassette door)
-                val ventsEl = vp.getElement("speaker_vents")
-                val ventsX = cw * (ventsEl?.relX ?: 0.5464f)
-                val ventsY = ch * (ventsEl?.relY ?: 0.5218f)
-                val ventsW = cw * (ventsEl?.relWidth ?: 0.3443f)
-                val ventsH = ch * (ventsEl?.relHeight ?: 0.1820f)
-
+            // 0. Tape Deck Bevels
+            val bayBevelsEl = vp.getElement("chassis_bay_bevels")
+            bayBevelsEl?.let { el ->
                 Image(
-                    painter = pixelPainterResource(id = R.drawable.chassis_speaker_vents),
-                    contentDescription = "Speaker Vents",
+                    painter = pixelPainterResource(id = R.drawable.chassis_bay_bevels),
+                    contentDescription = "Tape Deck Bevels",
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .offset(x = ventsX, y = ventsY)
-                        .size(width = ventsW, height = ventsH),
+                        .offset(x = el.dpX(), y = el.dpY())
+                        .size(width = el.dpW(), height = el.dpH()),
                     contentScale = ContentScale.FillBounds
-                )
-
-                // 3. Mint-Green LCD Display
-                val lcdEl = vp.getElement("lcd_display")
-                val lcdW = cw * (lcdEl?.relWidth ?: 0.4284f)
-                val lcdX = cw * (lcdEl?.relX ?: 0.5464f)
-                val lcdY = ch * (lcdEl?.relY ?: 0.0971f)
-
-                LcdDisplay(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = lcdX, y = lcdY)
-                        .width(lcdW),
-                    trackTitle = trackTitle,
-                    artist = artistText,
-                    source = when {
-                        currentTape?.isSpotify == true -> "SPOTIFY"
-                        currentTape?.isHomeMade == true -> "MIXTAPE"
-                        else -> "ALBUM"
-                    },
-                    timeText = formattedTime,
-                    statusText = statusText,
-                    isCueing = isCueing
-                )
-
-                // 4. Shuffle Switch
-                val shuffleEl = vp.getElement("switch_shuffle")
-                val shuffleX = cw * (shuffleEl?.relX ?: 0.5574f)
-                val shuffleY = ch * (shuffleEl?.relY ?: 0.6675f)
-                val switchW = cw * (shuffleEl?.relWidth ?: 0.0656f)
-                val switchH = ch * (shuffleEl?.relHeight ?: 0.0752f)
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = shuffleX, y = shuffleY)
-                ) {
-                    PixelArtButton(
-                        unpressedResId = if (isShuffleOn) R.drawable.switch_shuffle_on else R.drawable.switch_shuffle_off,
-                        pressedResId = if (isShuffleOn) R.drawable.switch_shuffle_on else R.drawable.switch_shuffle_off,
-                        width = switchW,
-                        height = switchH,
-                        onDownPress = { feedback?.onTick() },
-                        onClick = {
-                            isShuffleOn = !isShuffleOn
-                            onShuffleToggle(isShuffleOn)
-                        }
-                    )
-                }
-
-                // 5. Repeat Switch
-                val repeatEl = vp.getElement("switch_repeat")
-                val repeatX = cw * (repeatEl?.relX ?: 0.6448f)
-                val repeatY = ch * (repeatEl?.relY ?: 0.6675f)
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = repeatX, y = repeatY)
-                ) {
-                    PixelArtButton(
-                        unpressedResId = if (isRepeatOn) R.drawable.switch_repeat_on else R.drawable.switch_repeat_off,
-                        pressedResId = if (isRepeatOn) R.drawable.switch_repeat_on else R.drawable.switch_repeat_off,
-                        width = switchW,
-                        height = switchH,
-                        onDownPress = { feedback?.onTick() },
-                        onClick = {
-                            isRepeatOn = !isRepeatOn
-                            onRepeatToggle(isRepeatOn)
-                        }
-                    )
-                }
-
-                // 6. Transport Buttons Bank (Direct 1:1 placement matching designer)
-                SkinTransportControls(
-                    vp = vp,
-                    cw = cw,
-                    ch = ch,
-                    isPlaying = isPlaying,
-                    isTapeRunning = isTapeRunning,
-                    feedback = feedback,
-                    onPlay = onPlay,
-                    onStop = onStop,
-                    onSkipPrev = onSkipPrev,
-                    onSkip = onSkip,
-                    onEject = onEject,
-                    onSeek = onSeek
-                )
-            } else {
-                // VERTICAL (Portrait) Layout - Matches Skin Designer 1:1
-                // 1. Cassette Door
-                val isOpenDeckPort = !isTapeInserted || isInserting || isEjecting
-                val baseDoorEl = vp.getElement("cassette_bay") ?: vp.getElement("cassette_door")
-                val activeDoorEl = if (isOpenDeckPort) (vp.getElement("cassette_bay_open") ?: baseDoorEl) else baseDoorEl
-                val openDoorEl = vp.getElement("deck_door_open")
-                val deckX = cw * (activeDoorEl?.relX ?: 0.0437f)
-                val deckY = ch * (activeDoorEl?.relY ?: 0.0546f)
-                val deckW = cw * (activeDoorEl?.relWidth ?: 0.9102f)
-
-                CassetteDeck(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = deckX, y = deckY)
-                        .width(deckW),
-                    isTapeInserted = isTapeInserted,
-                    shellResId = tapeShellResId,
-                    isPlaying = isPlaying,
-                    tapeTitle = tapeTitle,
-                    tapeSubtitle = tapeSubtitle,
-                    labelColor = tapeLabelColor,
-                    shellColor = tapeShellColor,
-                    isHomeMade = currentTape?.isHomeMade ?: false,
-                    artworkBitmap = currentTape?.artworkBitmap,
-                    isInserting = isInserting,
-                    isEjecting = isEjecting,
-                    onEjectAnimationFinished = onEjectAnimationFinished,
-                    onInsertAnimationFinished = onInsertAnimationFinished,
-                    onEjectOrInsert = { onTapeDeckTapped() }
-                )
-
-                // Open Cassette Door (visible only when deck is open, locks 1:1 with cassette bay coordinates)
-                if (isOpenDeckPort && openDoorEl != null) {
-                    val bayRef = activeDoorEl ?: baseDoorEl
-                    val bayH = deckW * (144f / 250f)
-                    val (doorX, doorY, doorW, doorH) = if (bayRef != null && bayRef.width > 0f && bayRef.height > 0f) {
-                        val dX = deckX + deckW * ((openDoorEl.x - bayRef.x) / bayRef.width)
-                        val dY = deckY + bayH * ((openDoorEl.y - bayRef.y) / bayRef.height)
-                        val dW = deckW * (openDoorEl.width / bayRef.width)
-                        val dH = bayH * (openDoorEl.height / bayRef.height)
-                        listOf(dX, dY, dW, dH)
-                    } else {
-                        listOf(cw * openDoorEl.relX, ch * openDoorEl.relY, cw * openDoorEl.relWidth, ch * openDoorEl.relHeight)
-                    }
-
-                    Image(
-                        painter = pixelPainterResource(id = R.drawable.deck_door_open_front),
-                        contentDescription = "Open Cassette Door",
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .offset(x = doorX, y = doorY)
-                            .size(width = doorW, height = doorH)
-                            .clickable { onTapeDeckTapped() },
-                        contentScale = ContentScale.FillBounds
-                    )
-                }
-
-                // 2. Speaker Vents (Directly below cassette door in portrait)
-                val ventsEl = vp.getElement("speaker_vents")
-                val ventsX = cw * (ventsEl?.relX ?: 0.1214f)
-                val ventsY = ch * (ventsEl?.relY ?: 0.3005f)
-                val ventsW = cw * (ventsEl?.relWidth ?: 0.7646f)
-                val ventsH = ch * (ventsEl?.relHeight ?: 0.0820f)
-
-                Image(
-                    painter = pixelPainterResource(id = R.drawable.chassis_speaker_vents),
-                    contentDescription = "Speaker Vents",
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = ventsX, y = ventsY)
-                        .size(width = ventsW, height = ventsH),
-                    contentScale = ContentScale.FillBounds
-                )
-
-                // 3. Mint-Green LCD Display
-                val lcdEl = vp.getElement("lcd_display")
-                val lcdX = cw * (lcdEl?.relX ?: 0.0243f)
-                val lcdY = ch * (lcdEl?.relY ?: 0.3934f)
-                val lcdW = cw * (lcdEl?.relWidth ?: 0.9515f)
-
-                LcdDisplay(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = lcdX, y = lcdY)
-                        .width(lcdW),
-                    trackTitle = trackTitle,
-                    artist = artistText,
-                    source = when {
-                        currentTape?.isSpotify == true -> "SPOTIFY"
-                        currentTape?.isHomeMade == true -> "MIXTAPE"
-                        else -> "ALBUM"
-                    },
-                    timeText = formattedTime,
-                    statusText = statusText,
-                    isCueing = isCueing
-                )
-
-                // 4. Shuffle Switch
-                val shuffleEl = vp.getElement("switch_shuffle")
-                val repeatEl = vp.getElement("switch_repeat")
-                val shuffleX = cw * (shuffleEl?.relX ?: 0.1214f)
-                val shuffleY = ch * (shuffleEl?.relY ?: 0.5956f)
-                val switchW = cw * (shuffleEl?.relWidth ?: 0.1456f)
-                val switchH = ch * (shuffleEl?.relHeight ?: 0.0339f)
-                val repeatX = cw * (repeatEl?.relX ?: 0.7039f)
-                val repeatY = ch * (repeatEl?.relY ?: 0.5956f)
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = shuffleX, y = shuffleY)
-                ) {
-                    PixelArtButton(
-                        unpressedResId = if (isShuffleOn) R.drawable.switch_shuffle_on else R.drawable.switch_shuffle_off,
-                        pressedResId = if (isShuffleOn) R.drawable.switch_shuffle_on else R.drawable.switch_shuffle_off,
-                        width = switchW,
-                        height = switchH,
-                        onDownPress = { feedback?.onTick() },
-                        onClick = {
-                            isShuffleOn = !isShuffleOn
-                            onShuffleToggle(isShuffleOn)
-                        }
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = repeatX, y = repeatY)
-                ) {
-                    PixelArtButton(
-                        unpressedResId = if (isRepeatOn) R.drawable.switch_repeat_on else R.drawable.switch_repeat_off,
-                        pressedResId = if (isRepeatOn) R.drawable.switch_repeat_on else R.drawable.switch_repeat_off,
-                        width = switchW,
-                        height = switchH,
-                        onDownPress = { feedback?.onTick() },
-                        onClick = {
-                            isRepeatOn = !isRepeatOn
-                            onRepeatToggle(isRepeatOn)
-                        }
-                    )
-                }
-
-                // 5. Transport Buttons (Direct 1:1 placement matching designer)
-                SkinTransportControls(
-                    vp = vp,
-                    cw = cw,
-                    ch = ch,
-                    isPlaying = isPlaying,
-                    isTapeRunning = isTapeRunning,
-                    feedback = feedback,
-                    onPlay = onPlay,
-                    onStop = onStop,
-                    onSkipPrev = onSkipPrev,
-                    onSkip = onSkip,
-                    onEject = onEject,
-                    onSeek = onSeek
                 )
             }
-        }
-    }
-}
 
-@Composable
-private fun TransportButtonLabelsRow(isTapeRunning: Boolean) {
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 1.dp)
-    ) {
-        val rowW = maxWidth
-        val wSkip = rowW * (73f / 482f)
-        val wRewind = rowW * (72f / 482f)
-        val wPlay = rowW * (94f / 482f)
-        val wFastFwd = rowW * (73f / 482f)
-        val wSkipNext = rowW * (73f / 482f)
-        val wEject = rowW * (70f / 482f)
-        val labelSize = (rowW.value * 0.025f).coerceIn(7.5f, 10.5f).sp
-        val twoLineSize = (rowW.value * 0.022f).coerceIn(6.8f, 9.2f).sp
+            // 1. Cassette Deck Bay
+            val isOpenDeck = !isTapeInserted || isInserting || isEjecting
+            val baseDoorEl = vp.getElement("cassette_bay") ?: vp.getElement("cassette_door")
+            val activeDoorEl = if (isOpenDeck) (vp.getElement("cassette_bay_open") ?: baseDoorEl) else baseDoorEl
+            val openDoorEl = vp.getElement("deck_door_open")
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom
-        ) {
-            Text(
-                text = "SKIP",
-                modifier = Modifier.width(wSkip),
-                textAlign = TextAlign.Center,
-                color = PixelPalette.ButtonLabelAmber,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = labelSize
-            )
-            Text(
-                text = "REWIND",
-                modifier = Modifier.width(wRewind),
-                textAlign = TextAlign.Center,
-                color = PixelPalette.ButtonLabelAmber,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = labelSize
-            )
-            Text(
-                text = "PLAY",
-                modifier = Modifier.width(wPlay),
-                textAlign = TextAlign.Center,
-                color = PixelPalette.ButtonLabelAmber,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = labelSize
-            )
-            Text(
-                text = "FAST\nFORWARD",
-                modifier = Modifier.width(wFastFwd),
-                textAlign = TextAlign.Center,
-                color = PixelPalette.ButtonLabelAmber,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = twoLineSize,
-                lineHeight = twoLineSize
-            )
-            Text(
-                text = "SKIP\nFORWARD",
-                modifier = Modifier.width(wSkipNext),
-                textAlign = TextAlign.Center,
-                color = PixelPalette.ButtonLabelAmber,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = twoLineSize,
-                lineHeight = twoLineSize
-            )
-            Text(
-                text = if (isTapeRunning) "STOP" else "EJECT",
-                modifier = Modifier.width(wEject),
-                textAlign = TextAlign.Center,
-                color = PixelPalette.ButtonLabelAmber,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = labelSize
+            activeDoorEl?.let { doorEl ->
+                CassetteDeck(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = doorEl.dpX(), y = doorEl.dpY())
+                        .size(width = doorEl.dpW(), height = doorEl.dpH()),
+                    isTapeInserted = isTapeInserted,
+                    shellResId = tapeShellResId,
+                    isPlaying = isPlaying,
+                    tapeTitle = tapeTitle,
+                    tapeSubtitle = tapeSubtitle,
+                    labelColor = tapeLabelColor,
+                    shellColor = tapeShellColor,
+                    isHomeMade = currentTape?.isHomeMade ?: false,
+                    artworkBitmap = currentTape?.artworkBitmap,
+                    isInserting = isInserting,
+                    isEjecting = isEjecting,
+                    onEjectAnimationFinished = onEjectAnimationFinished,
+                    onInsertAnimationFinished = onInsertAnimationFinished,
+                    onEjectOrInsert = { onTapeDeckTapped() }
+                )
+            }
+
+            // Open Cassette Door (visible only when deck is open, locks 1:1 with cassette bay coordinates)
+            if (isOpenDeck && openDoorEl != null) {
+                Image(
+                    painter = pixelPainterResource(id = R.drawable.deck_door_open_front),
+                    contentDescription = "Open Cassette Door",
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = openDoorEl.dpX(), y = openDoorEl.dpY())
+                        .size(width = openDoorEl.dpW(), height = openDoorEl.dpH())
+                        .clickable { onTapeDeckTapped() },
+                    contentScale = ContentScale.FillBounds
+                )
+            }
+
+            // 2. Speaker Vents
+            val ventsEl = vp.getElement("speaker_vents")
+            ventsEl?.let { el ->
+                Image(
+                    painter = pixelPainterResource(id = R.drawable.chassis_speaker_vents),
+                    contentDescription = "Speaker Vents",
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = el.dpX(), y = el.dpY())
+                        .size(width = el.dpW(), height = el.dpH()),
+                    contentScale = ContentScale.FillBounds
+                )
+            }
+
+            // 3a. LCD Bevels
+            val lcdBevelsEl = vp.getElement("chassis_lcd_bevels")
+            lcdBevelsEl?.let { el ->
+                Image(
+                    painter = pixelPainterResource(id = R.drawable.chassis_lcd_bevels),
+                    contentDescription = "LCD Bevels",
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = el.dpX(), y = el.dpY())
+                        .size(width = el.dpW(), height = el.dpH()),
+                    contentScale = ContentScale.FillBounds
+                )
+            }
+
+            // 3b. Mint-Green LCD Display
+            val lcdEl = vp.getElement("lcd_display")
+            lcdEl?.let { el ->
+                LcdDisplay(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = el.dpX(), y = el.dpY())
+                        .size(width = el.dpW(), height = el.dpH()),
+                    trackTitle = trackTitle,
+                    artist = artistText,
+                    source = when {
+                        currentTape?.isSpotify == true -> "SPOTIFY"
+                        currentTape?.isHomeMade == true -> "MIXTAPE"
+                        else -> "ALBUM"
+                    },
+                    timeText = formattedTime,
+                    statusText = statusText,
+                    isCueing = isCueing
+                )
+            }
+
+            // 4. Shuffle Switch
+            val shuffleEl = vp.getElement("switch_shuffle")
+            shuffleEl?.let { el ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = el.dpX(), y = el.dpY())
+                ) {
+                    PixelArtButton(
+                        unpressedResId = if (isShuffleOn) R.drawable.switch_shuffle_on else R.drawable.switch_shuffle_off,
+                        pressedResId = if (isShuffleOn) R.drawable.switch_shuffle_on else R.drawable.switch_shuffle_off,
+                        width = el.dpW(),
+                        height = el.dpH(),
+                        onDownPress = { feedback?.onTick() },
+                        onClick = {
+                            isShuffleOn = !isShuffleOn
+                            onShuffleToggle(isShuffleOn)
+                        }
+                    )
+                }
+            }
+
+            // 5. Repeat Switch
+            val repeatEl = vp.getElement("switch_repeat")
+            repeatEl?.let { el ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = el.dpX(), y = el.dpY())
+                ) {
+                    PixelArtButton(
+                        unpressedResId = if (isRepeatOn) R.drawable.switch_repeat_on else R.drawable.switch_repeat_off,
+                        pressedResId = if (isRepeatOn) R.drawable.switch_repeat_on else R.drawable.switch_repeat_off,
+                        width = el.dpW(),
+                        height = el.dpH(),
+                        onDownPress = { feedback?.onTick() },
+                        onClick = {
+                            isRepeatOn = !isRepeatOn
+                            onRepeatToggle(isRepeatOn)
+                        }
+                    )
+                }
+            }
+
+            // 5b. Button Backing
+            val btnBackingEl = vp.getElement("chassis_btn_backing")
+            btnBackingEl?.let { el ->
+                Image(
+                    painter = pixelPainterResource(id = R.drawable.chassis_btn_backing),
+                    contentDescription = "Button Backing",
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = el.dpX(), y = el.dpY())
+                        .size(width = el.dpW(), height = el.dpH()),
+                    contentScale = ContentScale.FillBounds
+                )
+            }
+
+            // 6. Transport Buttons Bank (Direct 1:1 placement matching designer)
+            SkinTransportControls(
+                vp = vp,
+                scaleX = scaleX,
+                scaleY = scaleY,
+                isPlaying = isPlaying,
+                isTapeRunning = isTapeRunning,
+                feedback = feedback,
+                onPlay = onPlay,
+                onStop = onStop,
+                onSkipPrev = onSkipPrev,
+                onSkip = onSkip,
+                onEject = onEject,
+                onSeek = onSeek
             )
         }
     }
@@ -1629,8 +1410,8 @@ private fun TransportButtonLabelsRow(isTapeRunning: Boolean) {
 @Composable
 private fun BoxScope.SkinTransportControls(
     vp: com.retro.pixelplayer.skin.ViewportSkin,
-    cw: Dp,
-    ch: Dp,
+    scaleX: Float,
+    scaleY: Float,
     isPlaying: Boolean,
     isTapeRunning: Boolean,
     feedback: MechanicalFeedback?,
@@ -1641,6 +1422,11 @@ private fun BoxScope.SkinTransportControls(
     onEject: () -> Unit,
     onSeek: (Long) -> Unit
 ) {
+    fun com.retro.pixelplayer.skin.SkinElement.dpX() = (this.x * scaleX).dp
+    fun com.retro.pixelplayer.skin.SkinElement.dpY() = (this.y * scaleY).dp
+    fun com.retro.pixelplayer.skin.SkinElement.dpW() = (this.width * scaleX).dp
+    fun com.retro.pixelplayer.skin.SkinElement.dpH() = (this.height * scaleY).dp
+
     val skipPrevEl = vp.getElement("btn_skip_prev")
     val rewindEl = vp.getElement("btn_rewind")
     val playEl = vp.getElement("btn_play")
@@ -1654,13 +1440,13 @@ private fun BoxScope.SkinTransportControls(
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .offset(x = cw * el.relX, y = ch * el.relY)
+                .offset(x = el.dpX(), y = el.dpY())
         ) {
             PixelArtButton(
                 unpressedResId = R.drawable.btn_skip_prev_unpressed,
                 pressedResId = R.drawable.btn_skip_prev_pressed,
-                width = cw * el.relWidth,
-                height = ch * el.relHeight,
+                width = el.dpW(),
+                height = el.dpH(),
                 onDownPress = { feedback?.onTick() },
                 onClick = { onSkipPrev() }
             )
@@ -1672,13 +1458,13 @@ private fun BoxScope.SkinTransportControls(
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .offset(x = cw * el.relX, y = ch * el.relY)
+                .offset(x = el.dpX(), y = el.dpY())
         ) {
             PixelArtButton(
                 unpressedResId = R.drawable.btn_rewind_unpressed,
                 pressedResId = R.drawable.btn_rewind_pressed,
-                width = cw * el.relWidth,
-                height = ch * el.relHeight,
+                width = el.dpW(),
+                height = el.dpH(),
                 onDownPress = { feedback?.onRewindPress() },
                 onHoldRepeat = {
                     feedback?.onTick()
@@ -1696,14 +1482,14 @@ private fun BoxScope.SkinTransportControls(
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .offset(x = cw * el.relX, y = ch * el.relY)
+                .offset(x = el.dpX(), y = el.dpY())
         ) {
             PixelArtButton(
                 unpressedResId = R.drawable.btn_play_unpressed,
                 pressedResId = R.drawable.btn_play_pressed,
                 isLatched = isPlaying,
-                width = cw * el.relWidth,
-                height = ch * el.relHeight,
+                width = el.dpW(),
+                height = el.dpH(),
                 onDownPress = { feedback?.onPlayPress() },
                 onClick = { onPlay() }
             )
@@ -1715,13 +1501,13 @@ private fun BoxScope.SkinTransportControls(
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .offset(x = cw * el.relX, y = ch * el.relY)
+                .offset(x = el.dpX(), y = el.dpY())
         ) {
             PixelArtButton(
                 unpressedResId = R.drawable.btn_fast_fwd_unpressed,
                 pressedResId = R.drawable.btn_fast_fwd_pressed,
-                width = cw * el.relWidth,
-                height = ch * el.relHeight,
+                width = el.dpW(),
+                height = el.dpH(),
                 onDownPress = { feedback?.onRewindPress() },
                 onHoldRepeat = {
                     feedback?.onTick()
@@ -1739,13 +1525,13 @@ private fun BoxScope.SkinTransportControls(
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .offset(x = cw * el.relX, y = ch * el.relY)
+                .offset(x = el.dpX(), y = el.dpY())
         ) {
             PixelArtButton(
                 unpressedResId = R.drawable.btn_skip_next_unpressed,
                 pressedResId = R.drawable.btn_skip_next_pressed,
-                width = cw * el.relWidth,
-                height = ch * el.relHeight,
+                width = el.dpW(),
+                height = el.dpH(),
                 onDownPress = { feedback?.onTick() },
                 onClick = { onSkip() }
             )
@@ -1758,12 +1544,12 @@ private fun BoxScope.SkinTransportControls(
 
     stopEl?.let { el ->
         val showStop = isSeparateEject || isTapeRunning
-        val btnW = if (!showStop && ejectEl != null) cw * ejectEl.relWidth else cw * el.relWidth
-        val btnH = if (!showStop && ejectEl != null) ch * ejectEl.relHeight else ch * el.relHeight
+        val btnW = if (!showStop && ejectEl != null) ejectEl.dpW() else el.dpW()
+        val btnH = if (!showStop && ejectEl != null) ejectEl.dpH() else el.dpH()
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .offset(x = cw * el.relX, y = ch * el.relY)
+                .offset(x = el.dpX(), y = el.dpY())
         ) {
             if (showStop) {
                 PixelArtButton(
@@ -1793,13 +1579,13 @@ private fun BoxScope.SkinTransportControls(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .offset(x = cw * el.relX, y = ch * el.relY)
+                    .offset(x = el.dpX(), y = el.dpY())
             ) {
                 PixelArtButton(
                     unpressedResId = R.drawable.btn_eject_unpressed,
                     pressedResId = R.drawable.btn_eject_pressed,
-                    width = cw * el.relWidth,
-                    height = ch * el.relHeight,
+                    width = el.dpW(),
+                    height = el.dpH(),
                     onDownPress = { feedback?.onTapeLatch() },
                     onClick = { onEject() }
                 )
@@ -1807,6 +1593,7 @@ private fun BoxScope.SkinTransportControls(
         }
     }
 }
+
 
 @Composable
 private fun TransportButtonsRow(

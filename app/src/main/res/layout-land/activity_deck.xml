@@ -9,11 +9,27 @@
     android:background="@drawable/chassis_texture_bg"
     tools:device="id:pixel_8">
 
+    <!-- Tape Deck Bevels -->
+
     <!-- ======================================================= -->
     <!-- LEFT SIDE: CASSETTE DECK AREA (Stacked in z-order)      -->
     <!-- ======================================================= -->
 
     <!-- Layer 0: Empty Bay Cavity (spindles, head mechanism) -->
+
+    <ImageView
+        android:id="@+id/chassis_bay_bevels"
+        android:layout_width="452dp"
+        android:layout_height="261dp"
+        android:layout_marginStart="25dp"
+        android:layout_marginTop="58dp"
+        android:contentDescription="Tape Deck Bevels"
+        android:scaleType="fitXY"
+        android:src="@drawable/chassis_bay_bevels"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:visibility="visible" />
+
     <ImageView
         android:id="@+id/cassette_bay"
         android:layout_width="450dp"
@@ -41,7 +57,7 @@
         android:visibility="visible"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        tools:visibility="visible" />
+        tools:visibility="invisible" />
 
     <!-- Layer 1: Cassette Tape Body (when a tape is inserted) -->
     <ImageView
@@ -59,12 +75,14 @@
         tools:visibility="visible" />
 
     <!-- Layer 2: Closed Cassette Door (Glass window reflection & bezel) -->
+
+    <!-- Layer 3: Open Cassette Door (Tilted Cradle) - Toggle with visibility -->
     <ImageView
         android:id="@+id/deck_door_closed"
         android:layout_width="450dp"
         android:layout_height="259dp"
-        android:layout_marginStart="29dp"
-        android:layout_marginTop="50dp"
+        android:layout_marginStart="28dp"
+        android:layout_marginTop="52dp"
         android:contentDescription="Closed Cassette Door"
         android:scaleType="fitXY"
         android:src="@drawable/deck_cassette_front"
@@ -73,7 +91,6 @@
         app:layout_constraintTop_toTopOf="parent"
         tools:visibility="visible" />
 
-    <!-- Layer 3: Open Cassette Door (Tilted Cradle) - Toggle with visibility -->
     <ImageView
         android:id="@+id/deck_door_open"
         android:layout_width="508dp"
@@ -86,143 +103,160 @@
         android:visibility="visible"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        tools:visibility="visible" />
+        tools:visibility="invisible" />
 
     <!-- ======================================================= -->
     <!-- LEFT SIDE BOTTOM: TRANSPORT BUTTONS ROW                 -->
     <!-- ======================================================= -->
+
+    <!-- Button Backing -->
+
+    <ImageView
+        android:id="@+id/chassis_btn_backing"
+        android:layout_width="370dp"
+        android:layout_height="56dp"
+        android:layout_marginStart="490dp"
+        android:layout_marginTop="244dp"
+        android:contentDescription="Button Backing"
+        android:scaleType="fitXY"
+        android:src="@drawable/chassis_btn_backing"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:visibility="visible" />
 
     <ImageView
         android:id="@+id/btn_skip_prev"
         android:layout_width="47dp"
         android:layout_height="52dp"
         android:layout_marginStart="495dp"
+        android:layout_marginTop="248dp"
         android:contentDescription="Previous Track"
         android:scaleType="fitXY"
         android:src="@drawable/btn_skip_prev_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_rewind"
-        app:layout_constraintEnd_toStartOf="@+id/btn_rewind"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/deck_door_open"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <ImageView
         android:id="@+id/btn_rewind"
         android:layout_width="47dp"
         android:layout_height="52dp"
-        android:layout_marginStart="555dp"
+        android:layout_marginStart="13dp"
         android:contentDescription="Rewind"
         android:scaleType="fitXY"
         android:src="@drawable/btn_rewind_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_play"
-        app:layout_constraintEnd_toStartOf="@+id/btn_play"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/btn_skip_prev"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintTop_toTopOf="@+id/btn_skip_prev"
+        app:layout_constraintStart_toEndOf="@+id/btn_skip_prev" />
 
     <ImageView
         android:id="@+id/btn_play"
         android:layout_width="61dp"
         android:layout_height="53dp"
-        android:layout_marginStart="615dp"
+        android:layout_marginStart="13dp"
         android:contentDescription="Play"
         android:scaleType="fitXY"
         android:src="@drawable/btn_play_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_fast_fwd"
-        app:layout_constraintEnd_toStartOf="@+id/btn_fast_fwd"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/btn_rewind"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintTop_toTopOf="@+id/btn_skip_prev"
+        app:layout_constraintStart_toEndOf="@+id/btn_rewind" />
 
     <ImageView
         android:id="@+id/btn_fast_fwd"
         android:layout_width="47dp"
         android:layout_height="52dp"
-        android:layout_marginStart="690dp"
+        android:layout_marginStart="13dp"
         android:contentDescription="Fast Forward"
         android:scaleType="fitXY"
         android:src="@drawable/btn_fast_fwd_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_skip_next"
-        app:layout_constraintEnd_toStartOf="@+id/btn_skip_next"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/btn_play"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintTop_toTopOf="@+id/btn_skip_prev"
+        app:layout_constraintStart_toEndOf="@+id/btn_play" />
 
     <ImageView
         android:id="@+id/btn_skip_next"
         android:layout_width="47dp"
         android:layout_height="52dp"
-        android:layout_marginStart="750dp"
+        android:layout_marginStart="13dp"
         android:contentDescription="Next Track"
         android:scaleType="fitXY"
         android:src="@drawable/btn_skip_next_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_stop"
-        app:layout_constraintEnd_toStartOf="@+id/btn_stop"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/btn_fast_fwd"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintTop_toTopOf="@+id/btn_skip_prev"
+        app:layout_constraintStart_toEndOf="@+id/btn_fast_fwd" />
 
     <ImageView
         android:id="@+id/btn_stop"
         android:layout_width="46dp"
         android:layout_height="52dp"
-        android:layout_marginStart="810dp"
+        android:layout_marginStart="13dp"
         android:contentDescription="Stop"
         android:scaleType="fitXY"
         android:src="@drawable/btn_stop_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_eject"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/btn_skip_next"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintTop_toTopOf="@+id/btn_skip_prev"
+        app:layout_constraintStart_toEndOf="@+id/btn_skip_next" />
 
     <!-- ======================================================= -->
     <!-- RIGHT SIDE: LCD DISPLAY, VENTS, SWITCHES, EJECT         -->
     <!-- Anchored to end of screen                               -->
     <!-- ======================================================= -->
 
+    <!-- LCD Bevels -->
+
     <!-- LCD Display Frame -->
+
+    <!-- Speaker Vents -->
+
+    <!-- Shuffle Switch -->
+
+    <!-- Repeat Switch -->
+
+    <!-- Eject Button -->
+
+    <ImageView
+        android:id="@+id/chassis_lcd_bevels"
+        android:layout_width="396dp"
+        android:layout_height="175dp"
+        android:layout_marginTop="52dp"
+        android:layout_marginEnd="28dp"
+        android:contentDescription="LCD Bevels"
+        android:scaleType="fitXY"
+        android:src="@drawable/chassis_lcd_bevels"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:visibility="visible" />
+
     <ImageView
         android:id="@+id/lcd_display"
         android:layout_width="392dp"
         android:layout_height="163dp"
-        android:layout_marginTop="55dp"
-        android:layout_marginEnd="17dp"
+        android:layout_marginTop="60dp"
+        android:layout_marginEnd="28dp"
         android:contentDescription="LCD Display Frame"
         android:scaleType="fitXY"
         android:src="@drawable/chassis_lcd_frame"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Speaker Vents -->
     <ImageView
         android:id="@+id/speaker_vents"
-        android:layout_width="315dp"
-        android:layout_height="75dp"
-        android:layout_marginTop="315dp"
-        android:layout_marginEnd="504dp"
+        android:layout_width="267dp"
+        android:layout_height="45dp"
+        android:layout_marginTop="343dp"
+        android:layout_marginEnd="592dp"
         android:contentDescription="Speaker Vents"
         android:scaleType="fitXY"
         android:src="@drawable/chassis_speaker_vents"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Shuffle Switch -->
     <ImageView
         android:id="@+id/switch_shuffle"
         android:layout_width="60dp"
         android:layout_height="31dp"
-        android:layout_marginTop="368dp"
-        android:layout_marginEnd="274dp"
+        android:layout_marginTop="352dp"
+        android:layout_marginEnd="276dp"
         android:contentDescription="Shuffle Switch"
         android:scaleType="fitXY"
         android:src="@drawable/switch_shuffle_off"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Repeat Switch -->
-
-    <!-- Eject Button -->
     <ImageView
         android:id="@+id/switch_repeat"
         android:layout_width="60dp"
@@ -238,8 +272,8 @@
         android:id="@+id/btn_eject"
         android:layout_width="47dp"
         android:layout_height="52dp"
-        android:layout_marginTop="250dp"
-        android:layout_marginEnd="28dp"
+        android:layout_marginTop="248dp"
+        android:layout_marginEnd="60dp"
         android:contentDescription="Eject Button"
         android:scaleType="fitXY"
         android:src="@drawable/btn_eject_unpressed"

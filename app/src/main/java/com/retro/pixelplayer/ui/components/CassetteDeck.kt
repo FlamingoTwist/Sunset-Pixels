@@ -134,8 +134,6 @@ fun CassetteDeck(
 
     BoxWithConstraints(
         modifier = modifier
-            .fillMaxWidth()
-            .aspectRatio(250f / 144f)
             .clickable { onEjectOrInsert() },
         contentAlignment = Alignment.TopStart
     ) {

@@ -13,7 +13,22 @@
     <!-- CASSETTE DECK AREA (Stacked in natural z-order)         -->
     <!-- ======================================================= -->
 
+    <!-- Tape Deck Bevels -->
+
     <!-- Layer 0: Empty Bay Cavity (spindles, head mechanism) -->
+    <ImageView
+        android:id="@+id/chassis_bay_bevels"
+        android:layout_width="377dp"
+        android:layout_height="218dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="56dp"
+        android:contentDescription="Tape Deck Bevels"
+        android:scaleType="fitXY"
+        android:src="@drawable/chassis_bay_bevels"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:visibility="visible" />
+
     <ImageView
         android:id="@+id/cassette_bay"
         android:layout_width="375dp"
@@ -39,7 +54,7 @@
         android:visibility="gone"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        tools:visibility="visible" />
+        tools:visibility="invisible" />
 
     <!-- Layer 1: Cassette Tape Body (when a tape is inserted) -->
     <ImageView
@@ -80,7 +95,7 @@
         android:visibility="gone"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        tools:visibility="visible" />
+        tools:visibility="invisible" />
 
     <!-- ======================================================= -->
     <!-- LOWER HUD: SPEAKER VENTS, LCD, SWITCHES, BUTTONS        -->
@@ -104,6 +119,20 @@
     <!-- Repeat Switch -->
 
     <!-- Shuffle Switch -->
+
+    <!-- LCD Bevels -->
+    <ImageView
+        android:id="@+id/chassis_lcd_bevels"
+        android:layout_width="396dp"
+        android:layout_height="175dp"
+        android:layout_marginStart="6dp"
+        android:layout_marginTop="296dp"
+        android:contentDescription="LCD Bevels"
+        android:scaleType="fitXY"
+        android:src="@drawable/chassis_lcd_bevels"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:visibility="visible" />
 
     <ImageView
         android:id="@+id/lcd_display"
@@ -143,18 +172,29 @@
 
     <!-- Transport Buttons Row (Clean Horizontal Chain) -->
 
+    <!-- Button Backing -->
+    <ImageView
+        android:id="@+id/chassis_btn_backing"
+        android:layout_width="370dp"
+        android:layout_height="56dp"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="496dp"
+        android:contentDescription="Button Backing"
+        android:scaleType="fitXY"
+        android:src="@drawable/chassis_btn_backing"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:visibility="visible" />
+
     <ImageView
         android:id="@+id/btn_skip_prev"
         android:layout_width="44dp"
         android:layout_height="48dp"
-        android:layout_marginStart="23dp"
+        android:layout_marginStart="38dp"
         android:layout_marginTop="500dp"
         android:contentDescription="Previous Track"
         android:scaleType="fitXY"
         android:src="@drawable/btn_skip_prev_unpressed"
-        app:layout_constraintEnd_toStartOf="@+id/btn_rewind"
-        app:layout_constraintHorizontal_bias="0.71"
-        app:layout_constraintHorizontal_chainStyle="packed"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
@@ -162,56 +202,55 @@
         android:id="@+id/btn_rewind"
         android:layout_width="43dp"
         android:layout_height="48dp"
+        android:layout_marginStart="10dp"
         android:contentDescription="Rewind"
         android:scaleType="fitXY"
         android:src="@drawable/btn_rewind_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_skip_prev"
-        app:layout_constraintEnd_toStartOf="@+id/btn_play"
+        app:layout_constraintTop_toTopOf="@+id/btn_skip_prev"
         app:layout_constraintStart_toEndOf="@+id/btn_skip_prev" />
 
     <ImageView
         android:id="@+id/btn_play"
         android:layout_width="56dp"
         android:layout_height="49dp"
+        android:layout_marginStart="10dp"
         android:contentDescription="Play"
         android:scaleType="fitXY"
         android:src="@drawable/btn_play_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_rewind"
-        app:layout_constraintEnd_toStartOf="@+id/btn_fast_fwd"
+        app:layout_constraintTop_toTopOf="@+id/btn_skip_prev"
         app:layout_constraintStart_toEndOf="@+id/btn_rewind" />
 
     <ImageView
         android:id="@+id/btn_fast_fwd"
         android:layout_width="44dp"
         android:layout_height="48dp"
+        android:layout_marginStart="10dp"
         android:contentDescription="Fast Forward"
         android:scaleType="fitXY"
         android:src="@drawable/btn_fast_fwd_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_play"
-        app:layout_constraintEnd_toStartOf="@+id/btn_skip_next"
+        app:layout_constraintTop_toTopOf="@+id/btn_skip_prev"
         app:layout_constraintStart_toEndOf="@+id/btn_play" />
 
     <ImageView
         android:id="@+id/btn_skip_next"
         android:layout_width="44dp"
         android:layout_height="48dp"
+        android:layout_marginStart="10dp"
         android:contentDescription="Next Track"
         android:scaleType="fitXY"
         android:src="@drawable/btn_skip_next_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_fast_fwd"
-        app:layout_constraintEnd_toStartOf="@+id/btn_stop"
+        app:layout_constraintTop_toTopOf="@+id/btn_skip_prev"
         app:layout_constraintStart_toEndOf="@+id/btn_fast_fwd" />
 
     <ImageView
         android:id="@+id/btn_stop"
         android:layout_width="42dp"
         android:layout_height="48dp"
-        android:layout_marginEnd="55dp"
+        android:layout_marginStart="10dp"
         android:contentDescription="Stop"
         android:scaleType="fitXY"
         android:src="@drawable/btn_stop_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_skip_next"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/btn_skip_prev"
         app:layout_constraintStart_toEndOf="@+id/btn_skip_next" />
 
     <!-- Eject Button (Anchored to Stop for Dual-Purpose Walkman button) -->
@@ -222,7 +261,7 @@
         android:contentDescription="Eject Button"
         android:scaleType="fitXY"
         android:src="@drawable/btn_eject_unpressed"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_stop"
+        app:layout_constraintTop_toTopOf="@+id/btn_stop"
         app:layout_constraintStart_toStartOf="@+id/btn_stop" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

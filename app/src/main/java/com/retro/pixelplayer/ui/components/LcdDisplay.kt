@@ -63,8 +63,6 @@ fun LcdDisplay(
 
     BoxWithConstraints(
         modifier = modifier
-            .fillMaxWidth()
-            .aspectRatio(392f / 163f)
     ) {
         val lcdW = maxWidth
         val lcdH = maxHeight
